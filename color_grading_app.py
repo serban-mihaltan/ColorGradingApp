@@ -15,13 +15,8 @@ except Exception:
     cv2 = None
     HAS_CV2 = False
 
-<<<<<<< Updated upstream
-from PySide6.QtCore import QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal, QThread, QTimer
-from PySide6.QtGui import QAction, QColor, QImage, QKeySequence, QPainter, QPainterPath, QPen, QPixmap
-=======
 from PySide6.QtCore import QObject, QPointF, QRect, QRectF, Qt, Signal, QThread, QTimer
 from PySide6.QtGui import QAction, QColor, QImage, QKeySequence, QPainter, QPainterPath, QPen, QPixmap, QBrush
->>>>>>> Stashed changes
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -38,7 +33,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QRubberBand,
     QScrollArea,
     QSlider,
     QSplitter,
@@ -55,12 +49,9 @@ PROJECT_FILTER = "Color Grading Project (*.cgproj)"
 PRESET_FILTER = "Color Grading Preset (*.cgpreset)"
 FULL_IDLE_DELAY_MS = 220
 RENDER_DEBOUNCE_MS = 40
-<<<<<<< Updated upstream
-=======
 HISTOGRAM_MAX_SIDE = 512
 PREVIEW_RENDER_SCALE = 1.35
 MIN_CROP_SIZE = 12
->>>>>>> Stashed changes
 
 
 def pil_to_numpy_rgba(img: Image.Image) -> np.ndarray:
@@ -148,12 +139,6 @@ def histogram_from_rgba(arr: np.ndarray) -> Dict[str, np.ndarray]:
     }
 
 
-<<<<<<< Updated upstream
-# ============================================================
-# Data model
-# ============================================================
-=======
->>>>>>> Stashed changes
 @dataclass
 class CurveSet:
     master: list[tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
@@ -434,11 +419,6 @@ class RenderWorker(QObject):
         self._process_next()
 
 
-<<<<<<< Updated upstream
-# ============================================================
-# Widgets
-# ============================================================
-=======
 class HistogramWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -475,30 +455,20 @@ class HistogramWidget(QWidget):
             p.fillPath(path, colors[key])
 
 
->>>>>>> Stashed changes
 class CurveEditor(QWidget):
     pointsChanged = Signal(list)
     dragFinished = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(220)
-        self.setMinimumWidth(220)
+        self.setMinimumHeight(300)
+        self.setMinimumWidth(300)
         self.setMouseTracking(True)
         self._points = [(0.0, 0.0), (1.0, 1.0)]
         self._drag_index: Optional[int] = None
         self._channel = "master"
-<<<<<<< Updated upstream
-        self._colors = {
-            "master": QColor(230, 230, 230),
-            "red": QColor(220, 70, 70),
-            "green": QColor(70, 220, 70),
-            "blue": QColor(80, 120, 240),
-        }
-=======
         self._colors = {"master": QColor(230, 230, 230), "red": QColor(220, 70, 70), "green": QColor(70, 220, 70), "blue": QColor(80, 120, 240)}
         self._hist = {"r": np.zeros(256), "g": np.zeros(256), "b": np.zeros(256)}
->>>>>>> Stashed changes
 
     def set_channel(self, channel: str):
         self._channel = channel
@@ -508,9 +478,16 @@ class CurveEditor(QWidget):
         self._points = sorted(points, key=lambda p: p[0])
         self.update()
 
+    def set_histogram(self, hist):
+        self._hist = hist
+        self.update()
+
     def _content_rect(self) -> QRectF:
         m = 20
-        return QRectF(m, m, self.width() - 2 * m, self.height() - 2 * m)
+        side = max(40.0, min(self.width() - 2 * m, self.height() - 2 * m))
+        x = (self.width() - side) / 2.0
+        y = (self.height() - side) / 2.0
+        return QRectF(x, y, side, side)
 
     def _to_widget(self, p):
         r = self._content_rect()
@@ -573,8 +550,6 @@ class CurveEditor(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.fillRect(self.rect(), QColor(24, 24, 26))
         r = self._content_rect()
-<<<<<<< Updated upstream
-=======
         channel_map = {"master": ("r", "g", "b"), "red": ("r",), "green": ("g",), "blue": ("b",)}
         visible_channels = channel_map.get(self._channel, ("r", "g", "b"))
         maxv = max(1, int(max(np.max(self._hist[ch]) for ch in visible_channels)))
@@ -593,7 +568,6 @@ class CurveEditor(QWidget):
             path.lineTo(r.right(), r.bottom())
             path.closeSubpath()
             p.fillPath(path, hist_colors[key])
->>>>>>> Stashed changes
         p.setPen(QPen(QColor(55, 55, 60), 1))
         for i in range(5):
             x = r.left() + i * (r.width() / 4)
@@ -616,47 +590,13 @@ class CurveEditor(QWidget):
                 p.drawEllipse(pt, 5, 5)
 
 
-class HistogramWidget(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setMinimumHeight(160)
-        self.hist = {"r": np.zeros(256), "g": np.zeros(256), "b": np.zeros(256)}
-
-    def set_histogram(self, hist):
-        self.hist = hist
-        self.update()
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), QColor(20, 20, 22))
-        margin = 12
-        r = QRectF(margin, margin, self.width() - 2 * margin, self.height() - 2 * margin)
-        p.setPen(QPen(QColor(85, 85, 95), 1))
-        p.drawRect(r)
-        maxv = max(1, int(max(np.max(self.hist["r"]), np.max(self.hist["g"]), np.max(self.hist["b"]))))
-        colors = {"r": QColor(255, 80, 80, 160), "g": QColor(80, 255, 80, 160), "b": QColor(80, 140, 255, 160)}
-        for key in ("r", "g", "b"):
-            path = QPainterPath()
-            vals = self.hist[key].astype(np.float32) / maxv
-            for i, v in enumerate(vals):
-                x = r.left() + (i / 255.0) * r.width()
-                y = r.bottom() - v * r.height()
-                if i == 0:
-                    path.moveTo(x, r.bottom())
-                    path.lineTo(x, y)
-                else:
-                    path.lineTo(x, y)
-            path.lineTo(r.right(), r.bottom())
-            path.closeSubpath()
-            p.fillPath(path, colors[key])
-
-
 class ImageView(QGraphicsView):
-    cropCommitted = Signal(QRect)
+    cropPreviewChanged = Signal(QRect)
+    imageDropped = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setAcceptDrops(True)
         self.setScene(QGraphicsScene(self))
         self.pixmap_item = QGraphicsPixmapItem()
         self.scene().addItem(self.pixmap_item)
@@ -665,19 +605,21 @@ class ImageView(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setBackgroundBrush(QColor(35, 35, 38))
-        self._rubber_origin = QPoint()
-        self._rubber_band = QRubberBand(QRubberBand.Shape.Rectangle, self.viewport())
         self._crop_mode = False
         self._crop_aspect_lock = False
         self._crop_aspect_ratio = 1.0
+        self._crop_rect = QRectF()
+        self._staged_crop_rect = QRectF()
+        self._active_handle: Optional[str] = None
+        self._drag_origin_scene = QPointF()
+        self._crop_rect_at_drag = QRectF()
+        self._handle_rects: Dict[str, QRectF] = {}
+        self.setMouseTracking(True)
 
     def set_image(self, pixmap: QPixmap):
         self.pixmap_item.setPixmap(pixmap)
         self.scene().setSceneRect(QRectF(pixmap.rect()))
-<<<<<<< Updated upstream
-=======
         self.viewport().update()
->>>>>>> Stashed changes
 
     def fit_image(self):
         if not self.pixmap_item.pixmap().isNull():
@@ -692,13 +634,12 @@ class ImageView(QGraphicsView):
     def set_crop_mode(self, enabled: bool):
         self._crop_mode = enabled
         self.setDragMode(QGraphicsView.DragMode.NoDrag if enabled else QGraphicsView.DragMode.ScrollHandDrag)
+        self.viewport().update()
 
     def set_crop_lock(self, enabled: bool, ratio: float):
         self._crop_aspect_lock = enabled
         self._crop_aspect_ratio = max(0.01, ratio)
 
-<<<<<<< Updated upstream
-=======
     def set_crop_rect(self, rect: QRect):
         self._crop_rect = QRectF(rect)
         self._staged_crop_rect = QRectF(rect)
@@ -746,14 +687,11 @@ class ImageView(QGraphicsView):
                     return
         event.ignore()
 
->>>>>>> Stashed changes
     def wheelEvent(self, event):
         if event.angleDelta().y() > 0:
             self.zoom_in()
         else:
             self.zoom_out()
-<<<<<<< Updated upstream
-=======
         self.viewport().update()
 
     def drawForeground(self, painter: QPainter, rect: QRectF):
@@ -906,44 +844,40 @@ class ImageView(QGraphicsView):
                 rect.setTop(cy - new_h / 2)
                 rect.setBottom(cy + new_h / 2)
         self._staged_crop_rect = self._clamp_crop(rect)
->>>>>>> Stashed changes
 
     def mousePressEvent(self, event):
-        if self._crop_mode and event.button() == Qt.MouseButton.LeftButton:
-            self._rubber_origin = event.pos()
-            self._rubber_band.setGeometry(QRect(self._rubber_origin, QSize()))
-            self._rubber_band.show()
-        else:
-            super().mousePressEvent(event)
+        if self._crop_mode and event.button() == Qt.MouseButton.LeftButton and not self.pixmap_item.pixmap().isNull():
+            scene_pos = self._scene_pos(event)
+            bounds = QRectF(self.pixmap_item.pixmap().rect())
+            if self._staged_crop_rect.isNull():
+                self._staged_crop_rect = QRectF(bounds.center().x() - bounds.width() * 0.25, bounds.center().y() - bounds.height() * 0.25, bounds.width() * 0.5, bounds.height() * 0.5)
+            handle = self._pick_handle(scene_pos)
+            if handle is None and bounds.contains(scene_pos):
+                self._staged_crop_rect = QRectF(scene_pos.x(), scene_pos.y(), 1, 1)
+                handle = "br"
+            if handle is not None:
+                self._active_handle = handle
+                self._drag_origin_scene = scene_pos
+                self._crop_rect_at_drag = QRectF(self._staged_crop_rect)
+                self.viewport().update()
+                return
+        super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self._crop_mode and self._rubber_band.isVisible():
-            target = event.pos()
-            if self._crop_aspect_lock:
-                dx = target.x() - self._rubber_origin.x()
-                dy = target.y() - self._rubber_origin.y()
-                sx = 1 if dx >= 0 else -1
-                sy = 1 if dy >= 0 else -1
-                adx = abs(dx)
-                ady = abs(dy)
-                ratio = self._crop_aspect_ratio
-                if adx / max(1, ady) > ratio:
-                    adx = int(round(ady * ratio))
-                else:
-                    ady = int(round(adx / ratio))
-                target = QPoint(self._rubber_origin.x() + sx * adx, self._rubber_origin.y() + sy * ady)
-            self._rubber_band.setGeometry(QRect(self._rubber_origin, target).normalized())
-        else:
-            super().mouseMoveEvent(event)
+        if self._crop_mode and self._active_handle is not None:
+            scene_pos = self._scene_pos(event)
+            self._update_crop_from_handle(scene_pos)
+            self.cropPreviewChanged.emit(self.current_crop_rect())
+            self.viewport().update()
+            return
+        super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self._crop_mode and event.button() == Qt.MouseButton.LeftButton and self._rubber_band.isVisible():
-            rect = self._rubber_band.geometry()
-            self._rubber_band.hide()
-            if rect.width() > 10 and rect.height() > 10:
-                self.cropCommitted.emit(self.mapToScene(rect).boundingRect().toRect())
-        else:
-            super().mouseReleaseEvent(event)
+        if self._crop_mode and event.button() == Qt.MouseButton.LeftButton and self._active_handle is not None:
+            self._active_handle = None
+            self.viewport().update()
+            return
+        super().mouseReleaseEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -953,6 +887,7 @@ class MainWindow(QMainWindow):
         self.resize(1600, 950)
         self.original_rgba: Optional[np.ndarray] = None
         self.current_path: Optional[str] = None
+        self.current_project_path: Optional[str] = None
         self.preview_rgba: Optional[np.ndarray] = None
         self.state = AdjustmentState()
         self.history = HistoryManager()
@@ -964,8 +899,9 @@ class MainWindow(QMainWindow):
         self._render_generation = 0
         self._pending_fit = False
         self._interactive_drag = False
-        self._latest_histogram = None
+        self._latest_histogram = {"r": np.zeros(256), "g": np.zeros(256), "b": np.zeros(256)}
         self._pending_fast_render: Optional[Tuple[AdjustmentState, bool]] = None
+        self._is_dirty = False
 
         self._full_timer = QTimer(self)
         self._full_timer.setSingleShot(True)
@@ -986,6 +922,9 @@ class MainWindow(QMainWindow):
         self.refresh_actions()
 
     def closeEvent(self, event):
+        if not self.confirm_discard_unsaved():
+            event.ignore()
+            return
         self.worker_thread.quit()
         self.worker_thread.wait(1000)
         super().closeEvent(event)
@@ -1002,7 +941,8 @@ class MainWindow(QMainWindow):
         self.controls_tabs.setMinimumWidth(430)
         splitter.addWidget(self.controls_tabs)
         self.viewer = ImageView()
-        self.viewer.cropCommitted.connect(self.on_crop_committed)
+        self.viewer.cropPreviewChanged.connect(self.on_crop_preview_changed)
+        self.viewer.imageDropped.connect(self.load_image)
         splitter.addWidget(self.viewer)
         splitter.setStretchFactor(1, 1)
         self.create_actions()
@@ -1011,7 +951,6 @@ class MainWindow(QMainWindow):
         self.controls_tabs.addTab(self.build_curve_tab(), "Curves")
         self.controls_tabs.addTab(self.build_histogram_tab(), "Histogram")
         self.controls_tabs.addTab(self.build_transform_tab(), "Transform")
-        self.controls_tabs.addTab(self.build_session_tab(), "Presets & Projects")
         self.statusBar().showMessage("Open an image to begin")
         self._building_ui = False
 
@@ -1102,11 +1041,7 @@ class MainWindow(QMainWindow):
         l = QVBoxLayout(w)
         self.histogram_widget = HistogramWidget()
         l.addWidget(self.histogram_widget)
-<<<<<<< Updated upstream
-        txt = "Histogram only refreshes after the idle/full-quality render. Fast preview skips histogram work entirely."
-=======
         t = "Histogram updates after the idle/full-quality render and is shown inside the curve editor."
->>>>>>> Stashed changes
         if HAS_CV2:
             t += " OpenCV is used for faster preview operations."
         l.addWidget(QLabel(t))
@@ -1138,18 +1073,25 @@ class MainWindow(QMainWindow):
         layout.addWidget(transform)
         crop = QGroupBox("Crop")
         cl = QVBoxLayout(crop)
-        self.crop_mode_check = QCheckBox("Enable crop mode and drag over the image")
+        self.crop_mode_check = QCheckBox("Enable crop mode and drag handles on the image")
         self.crop_mode_check.toggled.connect(self.viewer.set_crop_mode)
         self.crop_lock_check = QCheckBox("Lock crop aspect ratio")
         self.crop_ratio_combo = QComboBox()
         self.crop_ratio_combo.addItems(["Original", "1:1", "4:3", "3:2", "16:9", "21:9"])
         self.crop_lock_check.toggled.connect(self.update_crop_lock)
         self.crop_ratio_combo.currentTextChanged.connect(self.update_crop_lock)
+        apply_crop = QPushButton("Apply Crop")
+        cancel_crop = QPushButton("Cancel Crop Edit")
         clear_crop = QPushButton("Clear Crop")
+        apply_crop.clicked.connect(self.apply_crop_from_view)
+        cancel_crop.clicked.connect(self.cancel_crop_edit)
         clear_crop.clicked.connect(self.clear_crop)
         cl.addWidget(self.crop_mode_check)
         cl.addWidget(self.crop_lock_check)
         cl.addWidget(self.crop_ratio_combo)
+        cl.addWidget(QLabel("Drag the corners, edges, or center of the crop box directly on the image. Use Apply Crop to commit."))
+        cl.addWidget(apply_crop)
+        cl.addWidget(cancel_crop)
         cl.addWidget(clear_crop)
         layout.addWidget(crop)
         resize_box = QGroupBox("Resize")
@@ -1172,35 +1114,6 @@ class MainWindow(QMainWindow):
         layout.addStretch(1)
         return w
 
-<<<<<<< Updated upstream
-    def build_session_tab(self):
-        w = QWidget()
-        l = QVBoxLayout(w)
-        pbox = QGroupBox("Presets")
-        pl = QHBoxLayout(pbox)
-        for txt, cb in [("Save Preset", self.save_preset), ("Load Preset", self.load_preset)]:
-            b = QPushButton(txt)
-            b.clicked.connect(cb)
-            pl.addWidget(b)
-        l.addWidget(pbox)
-        prbox = QGroupBox("Projects / Sessions")
-        prl = QHBoxLayout(prbox)
-        for txt, cb in [("Save Project", self.save_project), ("Load Project", self.load_project)]:
-            b = QPushButton(txt)
-            b.clicked.connect(cb)
-            prl.addWidget(b)
-        l.addWidget(prbox)
-        info = QLabel(
-            "This build uses threaded rendering, latest-request-wins scheduling, debounced fast preview, lower preview resolution, "
-            "draft rendering while dragging, tonal-mask caching, and histogram updates only after the full idle render."
-        )
-        info.setWordWrap(True)
-        l.addWidget(info)
-        l.addStretch(1)
-        return w
-
-=======
->>>>>>> Stashed changes
     def create_actions(self):
         pairs = [
             ("Open", "Ctrl+O", self.open_image, "act_open"),
@@ -1221,8 +1134,6 @@ class MainWindow(QMainWindow):
         self.act_toggle_compare.setShortcut(QKeySequence(Qt.Key.Key_Space))
         self.act_toggle_compare.triggered.connect(self.toggle_before_after)
         self.addAction(self.act_toggle_compare)
-<<<<<<< Updated upstream
-=======
         self.act_save_project = QAction("Save Project", self)
         self.act_save_project.triggered.connect(self.save_project)
         self.act_load_project = QAction("Load Project", self)
@@ -1231,7 +1142,6 @@ class MainWindow(QMainWindow):
         self.act_save_preset.triggered.connect(self.save_preset)
         self.act_load_preset = QAction("Load Preset", self)
         self.act_load_preset.triggered.connect(self.load_preset)
->>>>>>> Stashed changes
 
     def create_toolbar(self):
         tb = QToolBar("Main")
@@ -1239,6 +1149,10 @@ class MainWindow(QMainWindow):
         self.addToolBar(tb)
         for act in [self.act_open, self.act_export, self.act_undo, self.act_redo, self.act_reset]:
             tb.addAction(act)
+        tb.addSeparator()
+        for act in [self.act_save_project, self.act_load_project, self.act_save_preset, self.act_load_preset]:
+            tb.addAction(act)
+        tb.addSeparator()
         fit_act = QAction("Fit", self)
         fit_act.triggered.connect(self.viewer.fit_image)
         tb.addAction(fit_act)
@@ -1319,8 +1233,6 @@ class MainWindow(QMainWindow):
 
     def update_crop_lock(self):
         self.viewer.set_crop_lock(self.crop_lock_check.isChecked(), self.get_current_crop_ratio())
-<<<<<<< Updated upstream
-=======
         if self.crop_mode_check.isChecked():
             self.refresh_staged_crop_aspect()
 
@@ -1373,7 +1285,6 @@ class MainWindow(QMainWindow):
             self.viewer.set_crop_rect(QRect(int(disp_w * 0.15), int(disp_h * 0.15), int(disp_w * 0.7), int(disp_h * 0.7)))
         if self.crop_mode_check.isChecked():
             self.refresh_staged_crop_aspect()
->>>>>>> Stashed changes
 
     def request_fast_render(self, skip_tonal: bool):
         if self.original_rgba is None:
@@ -1408,19 +1319,6 @@ class MainWindow(QMainWindow):
             self.viewer.fit_image()
             self._pending_fit = False
 
-<<<<<<< Updated upstream
-    # ---------------- Events ----------------
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-
-    def dropEvent(self, event):
-        urls = event.mimeData().urls()
-        if urls:
-            path = urls[0].toLocalFile()
-            if path.lower().endswith((".png", ".jpg", ".jpeg")):
-                self.load_image(path)
-=======
     def apply_histogram_to_widgets(self, hist):
         self._latest_histogram = hist
         self.histogram_widget.set_histogram(hist)
@@ -1451,7 +1349,6 @@ class MainWindow(QMainWindow):
         if self.original_rgba is not None:
             self.request_fast_render(skip_tonal=self._interactive_drag)
             self._full_timer.start(FULL_IDLE_DELAY_MS)
->>>>>>> Stashed changes
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Space and not self.preview_original_while_held:
@@ -1475,12 +1372,12 @@ class MainWindow(QMainWindow):
             return
         self.preview_rgba = payload
         self.update_viewer_pixmap(show_original=self.preview_original_while_held)
+        self.sync_viewer_crop_rect()
 
     def on_histogram_result(self, generation: int, hist):
         if generation != self._render_generation:
             return
-        self._latest_histogram = hist
-        self.histogram_widget.set_histogram(hist)
+        self.apply_histogram_to_widgets(hist)
 
     def open_image(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", SUPPORTED_INPUT)
@@ -1492,6 +1389,7 @@ class MainWindow(QMainWindow):
             img = Image.open(path)
             self.original_rgba = pil_to_numpy_rgba(img)
             self.current_path = path
+            self.current_project_path = None
             self.state = AdjustmentState()
             self.history.clear()
             self.history.push(self.state)
@@ -1504,7 +1402,10 @@ class MainWindow(QMainWindow):
             self.resize_lock_check.setChecked(False)
             self.sync_controls_from_state()
             self.update_crop_lock()
+            self.sync_viewer_crop_rect()
+            self.apply_histogram_to_widgets(histogram_from_rgba(self.preview_rgba))
             self._pending_fit = True
+            self._is_dirty = False
             self.request_fast_render(skip_tonal=False)
             self._full_timer.start(FULL_IDLE_DELAY_MS)
             self.statusBar().showMessage(f"Loaded: {os.path.basename(path)}")
@@ -1541,6 +1442,8 @@ class MainWindow(QMainWindow):
         if path:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump({"adjustments": self.state.to_json()}, f, indent=2)
+            self._is_dirty = False
+            self.statusBar().showMessage(f"Preset saved: {path}")
 
     def load_preset(self):
         path, _ = QFileDialog.getOpenFileName(self, "Load Preset", "", PRESET_FILTER)
@@ -1548,14 +1451,19 @@ class MainWindow(QMainWindow):
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             self.commit_state(AdjustmentState.from_json(data.get("adjustments", {})), push_history=True)
+            self._is_dirty = False
+            self.statusBar().showMessage(f"Preset loaded: {path}")
 
     def save_project(self):
         if self.original_rgba is None:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Save Project", "project.cgproj", PROJECT_FILTER)
+        path, _ = QFileDialog.getSaveFileName(self, "Save Project", self.current_project_path or "project.cgproj", PROJECT_FILTER)
         if path:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump({"image_path": self.current_path, "adjustments": self.state.to_json()}, f, indent=2)
+            self.current_project_path = path
+            self._is_dirty = False
+            self.statusBar().showMessage(f"Project saved: {path}")
 
     def load_project(self):
         path, _ = QFileDialog.getOpenFileName(self, "Load Project", "", PROJECT_FILTER)
@@ -1568,10 +1476,15 @@ class MainWindow(QMainWindow):
                 return
             self.load_image(img_path)
             self.commit_state(AdjustmentState.from_json(data.get("adjustments", {})), push_history=True)
+            self.current_project_path = path
+            self._is_dirty = False
+            self.statusBar().showMessage(f"Project loaded: {path}")
 
     def commit_state(self, state: AdjustmentState, push_history: bool = False):
         self.state = state
+        self._is_dirty = True
         self.sync_controls_from_state()
+        self.sync_viewer_crop_rect()
         self.request_fast_render(skip_tonal=self._interactive_drag)
         self._full_timer.start(FULL_IDLE_DELAY_MS)
         if push_history:
@@ -1581,6 +1494,7 @@ class MainWindow(QMainWindow):
     def finalize_interaction(self):
         self._interactive_drag = False
         self.history.push(self.state)
+        self.sync_viewer_crop_rect()
         self.request_fast_render(skip_tonal=False)
         self._full_timer.start(FULL_IDLE_DELAY_MS)
         self.refresh_actions()
@@ -1610,6 +1524,7 @@ class MainWindow(QMainWindow):
     def sync_curve_editor_from_state(self):
         self.curve_editor.set_channel(self.current_curve_channel)
         self.curve_editor.set_points(getattr(self.state.curves, self.current_curve_channel))
+        self.curve_editor.set_histogram(self._latest_histogram)
 
     def refresh_actions(self):
         self.act_export.setEnabled(self.original_rgba is not None)
@@ -1645,25 +1560,20 @@ class MainWindow(QMainWindow):
         setattr(st.curves, self.current_curve_channel, points)
         self.commit_state(st, push_history=False)
 
-<<<<<<< Updated upstream
-    def on_crop_committed(self, rect: QRect):
-        if self.original_rgba is None or self.preview_rgba is None:
-=======
     def on_crop_preview_changed(self, rect: QRect):
         self.statusBar().showMessage(f"Crop preview: {rect.width()} × {rect.height()}")
 
     def apply_crop_from_view(self):
         if self.original_rgba is None:
->>>>>>> Stashed changes
             return
         geom_rect = self.display_rect_to_geometry_rect(self.viewer.current_crop_rect())
         st = self.state.clone()
-<<<<<<< Updated upstream
-        st.crop = CropRect(x, y, w, h, True)
-=======
         st.crop = CropRect(geom_rect.x(), geom_rect.y(), geom_rect.width(), geom_rect.height(), True)
->>>>>>> Stashed changes
         self.commit_state(st, push_history=True)
+        self.crop_mode_check.setChecked(False)
+
+    def cancel_crop_edit(self):
+        self.viewer.revert_staged_crop()
         self.crop_mode_check.setChecked(False)
 
     def on_resize_dimension_changed(self, changed_axis: str):
@@ -1701,6 +1611,7 @@ class MainWindow(QMainWindow):
         self.finalize_interaction()
         self.state = self.history.undo(self.state)
         self.sync_controls_from_state()
+        self.sync_viewer_crop_rect()
         self.request_fast_render(skip_tonal=False)
         self._full_timer.start(FULL_IDLE_DELAY_MS)
         self.refresh_actions()
@@ -1708,6 +1619,7 @@ class MainWindow(QMainWindow):
     def redo(self):
         self.state = self.history.redo(self.state)
         self.sync_controls_from_state()
+        self.sync_viewer_crop_rect()
         self.request_fast_render(skip_tonal=False)
         self._full_timer.start(FULL_IDLE_DELAY_MS)
         self.refresh_actions()
@@ -1752,6 +1664,7 @@ class MainWindow(QMainWindow):
         st = self.state.clone()
         st.crop = CropRect()
         self.commit_state(st, push_history=True)
+        self.viewer.clear_crop_rect()
 
     def reset_resize(self):
         st = self.state.clone()
@@ -1776,12 +1689,6 @@ class MainWindow(QMainWindow):
         self.update_viewer_pixmap(show_original=self.preview_original_while_held)
 
 
-<<<<<<< Updated upstream
-# ============================================================
-# Bootstrap
-# ============================================================
-=======
->>>>>>> Stashed changes
 def install_slider_commit_hooks(window: MainWindow):
     sliders = [v[0] for v in window.controls.values()] + [window.resize_w_slider, window.resize_h_slider]
     seen = set()
