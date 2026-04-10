@@ -15,8 +15,13 @@ except Exception:
     cv2 = None
     HAS_CV2 = False
 
+<<<<<<< Updated upstream
 from PySide6.QtCore import QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal, QThread, QTimer
 from PySide6.QtGui import QAction, QColor, QImage, QKeySequence, QPainter, QPainterPath, QPen, QPixmap
+=======
+from PySide6.QtCore import QObject, QPointF, QRect, QRectF, Qt, Signal, QThread, QTimer
+from PySide6.QtGui import QAction, QColor, QImage, QKeySequence, QPainter, QPainterPath, QPen, QPixmap, QBrush
+>>>>>>> Stashed changes
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -48,17 +53,14 @@ SUPPORTED_INPUT = "Images (*.png *.jpg *.jpeg)"
 SUPPORTED_EXPORT = "PNG (*.png);;JPEG (*.jpg *.jpeg)"
 PROJECT_FILTER = "Color Grading Project (*.cgproj)"
 PRESET_FILTER = "Color Grading Preset (*.cgpreset)"
-FAST_PREVIEW_MAX_SIDE = 1400
-HISTOGRAM_MAX_SIDE = 512
-FULL_IDLE_DELAY_MS = 180
+FULL_IDLE_DELAY_MS = 220
 RENDER_DEBOUNCE_MS = 40
-
-
-# ============================================================
-# Utilities
-# ============================================================
-def clamp01(arr: np.ndarray) -> np.ndarray:
-    return np.clip(arr, 0.0, 1.0)
+<<<<<<< Updated upstream
+=======
+HISTOGRAM_MAX_SIDE = 512
+PREVIEW_RENDER_SCALE = 1.35
+MIN_CROP_SIZE = 12
+>>>>>>> Stashed changes
 
 
 def pil_to_numpy_rgba(img: Image.Image) -> np.ndarray:
@@ -67,21 +69,52 @@ def pil_to_numpy_rgba(img: Image.Image) -> np.ndarray:
 
 def numpy_to_qimage(arr: np.ndarray) -> QImage:
     arr = np.ascontiguousarray(arr)
-    if arr.dtype != np.uint8:
-        arr = np.clip(arr, 0, 255).astype(np.uint8)
     h, w, c = arr.shape
     if c == 4:
         return QImage(arr.data, w, h, w * 4, QImage.Format.Format_RGBA8888).copy()
-    if c == 3:
-        return QImage(arr.data, w, h, w * 3, QImage.Format.Format_RGB888).copy()
-    raise ValueError("Unsupported image shape")
+    return QImage(arr.data, w, h, w * 3, QImage.Format.Format_RGB888).copy()
 
 
 def numpy_to_pixmap(arr: np.ndarray) -> QPixmap:
     return QPixmap.fromImage(numpy_to_qimage(arr))
 
 
-def build_curve_lut(points: List[Tuple[float, float]]) -> np.ndarray:
+def resize_rgba(arr: np.ndarray, size: Tuple[int, int], fast: bool = True) -> np.ndarray:
+    w, h = size
+    if arr.shape[1] == w and arr.shape[0] == h:
+        return arr
+    if HAS_CV2:
+        interp = cv2.INTER_LINEAR if fast else cv2.INTER_LANCZOS4
+        return np.ascontiguousarray(cv2.resize(arr, (w, h), interpolation=interp))
+    pil = Image.fromarray(arr, mode="RGBA")
+    resample = Image.Resampling.BILINEAR if fast else Image.Resampling.LANCZOS
+    return np.ascontiguousarray(np.array(pil.resize((w, h), resample=resample), dtype=np.uint8))
+
+
+def downscale_rgba(arr: np.ndarray, max_side: int) -> np.ndarray:
+    h, w = arr.shape[:2]
+    longest = max(h, w)
+    if longest <= max_side:
+        return arr
+    scale = max_side / float(longest)
+    return resize_rgba(arr, (max(1, int(round(w * scale))), max(1, int(round(h * scale)))), fast=True)
+
+
+def hash_array(arr: np.ndarray) -> int:
+    sample = arr[:: max(1, arr.shape[0] // 64), :: max(1, arr.shape[1] // 64), :3]
+    return int(sample.sum())
+
+
+def fit_size_preserving_aspect(src_w: int, src_h: int, max_w: int, max_h: int) -> Tuple[int, int]:
+    max_w = max(1, max_w)
+    max_h = max(1, max_h)
+    src_w = max(1, src_w)
+    src_h = max(1, src_h)
+    scale = min(max_w / float(src_w), max_h / float(src_h))
+    return max(1, int(round(src_w * scale))), max(1, int(round(src_h * scale)))
+
+
+def build_curve_lut(points: list[tuple[float, float]]) -> np.ndarray:
     pts = sorted([(float(np.clip(x, 0, 1)), float(np.clip(y, 0, 1))) for x, y in points], key=lambda p: p[0])
     if not pts:
         pts = [(0.0, 0.0), (1.0, 1.0)]
@@ -105,53 +138,8 @@ def compose_scalar_lut(brightness: float, contrast: float, gamma: float, exposur
     return np.clip((vals * 255.0).round(), 0, 255).astype(np.uint8)
 
 
-def resize_rgba(arr: np.ndarray, size: Tuple[int, int], fast: bool = True) -> np.ndarray:
-    w, h = size
-    if arr.shape[1] == w and arr.shape[0] == h:
-        return arr
-    if HAS_CV2:
-        interp = cv2.INTER_LINEAR if fast else cv2.INTER_LANCZOS4
-        return np.ascontiguousarray(cv2.resize(arr, (w, h), interpolation=interp))
-    pil = Image.fromarray(arr, mode="RGBA")
-    resample = Image.Resampling.BILINEAR if fast else Image.Resampling.LANCZOS
-    return np.ascontiguousarray(np.array(pil.resize((w, h), resample=resample), dtype=np.uint8))
-
-
-def downscale_rgba(arr: np.ndarray, max_side: int, fast: bool = True) -> np.ndarray:
-    h, w = arr.shape[:2]
-    longest = max(h, w)
-    if longest <= max_side:
-        return arr
-    scale = max_side / float(longest)
-    return resize_rgba(arr, (max(1, int(round(w * scale))), max(1, int(round(h * scale)))), fast=fast)
-
-
-def ensure_serializable_points(points: List[Tuple[float, float]]) -> List[List[float]]:
-    return [[float(x), float(y)] for x, y in points]
-
-
-def points_from_json(points: List[List[float]]) -> List[Tuple[float, float]]:
-    return [(float(p[0]), float(p[1])) for p in points]
-
-
-def hash_array(arr: np.ndarray) -> int:
-    sample = arr[:: max(1, arr.shape[0] // 64), :: max(1, arr.shape[1] // 64), :3]
-    return int(sample.sum())
-
-
-def compute_geometry_size(width: int, height: int, state: "AdjustmentState") -> Tuple[int, int]:
-    w, h = width, height
-    if state.crop.enabled and state.crop.w > 1 and state.crop.h > 1:
-        w, h = state.crop.w, state.crop.h
-    if state.rotation % 180 != 0:
-        w, h = h, w
-    if state.resize.enabled and state.resize.width > 1 and state.resize.height > 1:
-        w, h = state.resize.width, state.resize.height
-    return w, h
-
-
 def histogram_from_rgba(arr: np.ndarray) -> Dict[str, np.ndarray]:
-    src = downscale_rgba(arr, HISTOGRAM_MAX_SIDE, fast=True)
+    src = downscale_rgba(arr, HISTOGRAM_MAX_SIDE)
     rgb = src[:, :, :3]
     return {
         "r": np.histogram(rgb[:, :, 0].reshape(-1), bins=256, range=(0, 255))[0],
@@ -160,32 +148,29 @@ def histogram_from_rgba(arr: np.ndarray) -> Dict[str, np.ndarray]:
     }
 
 
+<<<<<<< Updated upstream
 # ============================================================
 # Data model
 # ============================================================
+=======
+>>>>>>> Stashed changes
 @dataclass
 class CurveSet:
-    master: List[Tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
-    red: List[Tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
-    green: List[Tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
-    blue: List[Tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
+    master: list[tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
+    red: list[tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
+    green: list[tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
+    blue: list[tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
 
     def to_json(self):
-        return {
-            "master": ensure_serializable_points(self.master),
-            "red": ensure_serializable_points(self.red),
-            "green": ensure_serializable_points(self.green),
-            "blue": ensure_serializable_points(self.blue),
-        }
+        return {k: [[float(x), float(y)] for x, y in getattr(self, k)] for k in ("master", "red", "green", "blue")}
 
     @staticmethod
     def from_json(data: Dict) -> "CurveSet":
-        return CurveSet(
-            master=points_from_json(data.get("master", [[0, 0], [1, 1]])),
-            red=points_from_json(data.get("red", [[0, 0], [1, 1]])),
-            green=points_from_json(data.get("green", [[0, 0], [1, 1]])),
-            blue=points_from_json(data.get("blue", [[0, 0], [1, 1]])),
-        )
+        cs = CurveSet()
+        for k in ("master", "red", "green", "blue"):
+            pts = data.get(k, [[0, 0], [1, 1]])
+            setattr(cs, k, [(float(p[0]), float(p[1])) for p in pts])
+        return cs
 
 
 @dataclass
@@ -283,16 +268,8 @@ class AdjustmentState:
     @staticmethod
     def from_json(data: Dict) -> "AdjustmentState":
         st = AdjustmentState()
-        st.brightness = float(data.get("brightness", 0.0))
-        st.contrast = float(data.get("contrast", 0.0))
-        st.gamma = float(data.get("gamma", 1.0))
-        st.exposure = float(data.get("exposure", 0.0))
-        st.temperature = float(data.get("temperature", 0.0))
-        st.tint = float(data.get("tint", 0.0))
-        st.white_balance_strength = float(data.get("white_balance_strength", 0.0))
-        st.red_intensity = float(data.get("red_intensity", 0.0))
-        st.green_intensity = float(data.get("green_intensity", 0.0))
-        st.blue_intensity = float(data.get("blue_intensity", 0.0))
+        for k in ("brightness", "contrast", "gamma", "exposure", "temperature", "tint", "white_balance_strength", "red_intensity", "green_intensity", "blue_intensity"):
+            setattr(st, k, float(data.get(k, getattr(st, k))))
         st.shadows = ToneRGB.from_json(data.get("shadows", {}))
         st.midtones = ToneRGB.from_json(data.get("midtones", {}))
         st.highlights = ToneRGB.from_json(data.get("highlights", {}))
@@ -307,8 +284,8 @@ class AdjustmentState:
 
 class HistoryManager:
     def __init__(self):
-        self.undo_stack: List[AdjustmentState] = []
-        self.redo_stack: List[AdjustmentState] = []
+        self.undo_stack: list[AdjustmentState] = []
+        self.redo_stack: list[AdjustmentState] = []
 
     def clear(self):
         self.undo_stack.clear()
@@ -340,19 +317,16 @@ class HistoryManager:
         return state.clone()
 
 
-# ============================================================
-# Processing
-# ============================================================
 class ImageProcessor:
     @staticmethod
-    def apply_geometry(img: np.ndarray, state: AdjustmentState, fast: bool) -> np.ndarray:
+    def apply_crop_rotate_flip(img: np.ndarray, state: AdjustmentState) -> np.ndarray:
         out = img
         if state.crop.enabled and state.crop.w > 1 and state.crop.h > 1:
             h, w = out.shape[:2]
-            x = int(np.clip(state.crop.x, 0, w - 1))
-            y = int(np.clip(state.crop.y, 0, h - 1))
-            cw = int(np.clip(state.crop.w, 1, w - x))
-            ch = int(np.clip(state.crop.h, 1, h - y))
+            x = int(np.clip(state.crop.x, 0, max(0, w - 1)))
+            y = int(np.clip(state.crop.y, 0, max(0, h - 1)))
+            cw = int(np.clip(state.crop.w, 1, max(1, w - x)))
+            ch = int(np.clip(state.crop.h, 1, max(1, h - y)))
             out = np.ascontiguousarray(out[y:y + ch, x:x + cw])
         if state.rotation % 360 != 0:
             k = (state.rotation % 360) // 90
@@ -361,31 +335,26 @@ class ImageProcessor:
             out = np.ascontiguousarray(np.flip(out, axis=1))
         if state.flip_v:
             out = np.ascontiguousarray(np.flip(out, axis=0))
-        if state.resize.enabled and state.resize.width > 1 and state.resize.height > 1:
-            out = resize_rgba(out, (state.resize.width, state.resize.height), fast=fast)
         return out
 
     @staticmethod
-    def apply_color(
-        geometry_rgba: np.ndarray,
-        state: AdjustmentState,
-        fast: bool,
-        skip_tonal: bool = False,
-        tonal_cache: Optional[Dict] = None,
-    ) -> Tuple[np.ndarray, Optional[Dict]]:
-        rgba = geometry_rgba.copy()
-        rgb = rgba[:, :, :3]
+    def apply_resize(img: np.ndarray, state: AdjustmentState, fast: bool) -> np.ndarray:
+        if state.resize.enabled and state.resize.width > 1 and state.resize.height > 1:
+            return resize_rgba(img, (state.resize.width, state.resize.height), fast=fast)
+        return img
 
+    @staticmethod
+    def apply_color(img: np.ndarray, state: AdjustmentState, skip_tonal: bool = False) -> np.ndarray:
+        rgba = img.copy()
+        rgb = rgba[:, :, :3]
         scalar_lut = compose_scalar_lut(state.brightness, state.contrast, state.gamma, state.exposure)
         master_lut = build_curve_lut(state.curves.master)
         red_curve = build_curve_lut(state.curves.red)
         green_curve = build_curve_lut(state.curves.green)
         blue_curve = build_curve_lut(state.curves.blue)
-
         lut_r = red_curve[master_lut[scalar_lut]]
         lut_g = green_curve[master_lut[scalar_lut]]
         lut_b = blue_curve[master_lut[scalar_lut]]
-
         if HAS_CV2:
             rgb[:, :, 0] = cv2.LUT(rgb[:, :, 0], lut_r)
             rgb[:, :, 1] = cv2.LUT(rgb[:, :, 1], lut_g)
@@ -394,9 +363,7 @@ class ImageProcessor:
             rgb[:, :, 0] = lut_r[rgb[:, :, 0]]
             rgb[:, :, 1] = lut_g[rgb[:, :, 1]]
             rgb[:, :, 2] = lut_b[rgb[:, :, 2]]
-
         rgbf = rgb.astype(np.float32) / 255.0
-
         wb = np.array([
             1.0 + state.temperature * 0.35 + state.white_balance_strength * 0.15,
             1.0 + state.tint * 0.10,
@@ -409,38 +376,25 @@ class ImageProcessor:
         ], dtype=np.float32).reshape(1, 1, 3)
         rgbf *= wb
         rgbf *= ch
-
-        new_tonal_cache = tonal_cache
         if not skip_tonal:
-            if tonal_cache is None or tonal_cache.get("shape") != rgbf.shape[:2]:
-                lum = 0.2126 * rgbf[:, :, 0] + 0.7152 * rgbf[:, :, 1] + 0.0722 * rgbf[:, :, 2]
-                shadows_w = np.clip((0.45 - lum) / 0.45, 0.0, 1.0)[..., None]
-                highlights_w = np.clip((lum - 0.55) / 0.45, 0.0, 1.0)[..., None]
-                midtones_w = 1.0 - np.clip(shadows_w + highlights_w, 0.0, 1.0)
-                new_tonal_cache = {
-                    "shape": rgbf.shape[:2],
-                    "shadows_w": shadows_w,
-                    "midtones_w": midtones_w,
-                    "highlights_w": highlights_w,
-                }
-            shadows_w = new_tonal_cache["shadows_w"]
-            midtones_w = new_tonal_cache["midtones_w"]
-            highlights_w = new_tonal_cache["highlights_w"]
+            lum = 0.2126 * rgbf[:, :, 0] + 0.7152 * rgbf[:, :, 1] + 0.0722 * rgbf[:, :, 2]
+            shadows_w = np.clip((0.45 - lum) / 0.45, 0.0, 1.0)[..., None]
+            highlights_w = np.clip((lum - 0.55) / 0.45, 0.0, 1.0)[..., None]
+            midtones_w = 1.0 - np.clip(shadows_w + highlights_w, 0.0, 1.0)
             rgbf += shadows_w * np.array([state.shadows.r, state.shadows.g, state.shadows.b], dtype=np.float32).reshape(1, 1, 3)
             rgbf += midtones_w * np.array([state.midtones.r, state.midtones.g, state.midtones.b], dtype=np.float32).reshape(1, 1, 3)
             rgbf += highlights_w * np.array([state.highlights.r, state.highlights.g, state.highlights.b], dtype=np.float32).reshape(1, 1, 3)
-
         rgba[:, :, :3] = np.clip(rgbf * 255.0, 0, 255).astype(np.uint8)
-        return np.ascontiguousarray(rgba), new_tonal_cache
+        return np.ascontiguousarray(rgba)
 
 
 class RenderRequest:
-    def __init__(self, generation: int, source: np.ndarray, state: AdjustmentState, fast: bool, upscale_to: Optional[Tuple[int, int]], skip_tonal: bool = False):
+    def __init__(self, generation: int, source: np.ndarray, state: AdjustmentState, display_size: Tuple[int, int], full_quality: bool, skip_tonal: bool):
         self.generation = generation
         self.source = source
         self.state = state
-        self.fast = fast
-        self.upscale_to = upscale_to
+        self.display_size = display_size
+        self.full_quality = full_quality
         self.skip_tonal = skip_tonal
 
 
@@ -452,8 +406,6 @@ class RenderWorker(QObject):
         super().__init__()
         self.pending: Optional[RenderRequest] = None
         self.busy = False
-        self.tonal_cache_preview: Optional[Dict] = None
-        self.tonal_cache_full: Optional[Dict] = None
 
     def submit(self, request: RenderRequest):
         self.pending = request
@@ -468,27 +420,62 @@ class RenderWorker(QObject):
         req = self.pending
         self.pending = None
         try:
-            geo = ImageProcessor.apply_geometry(req.source, req.state, fast=req.fast)
-            tonal_cache = self.tonal_cache_preview if req.fast else self.tonal_cache_full
-            img, new_cache = ImageProcessor.apply_color(geo, req.state, fast=req.fast, skip_tonal=req.skip_tonal, tonal_cache=tonal_cache)
-            if not req.skip_tonal:
-                if req.fast:
-                    self.tonal_cache_preview = new_cache
-                else:
-                    self.tonal_cache_full = new_cache
-            if req.upscale_to is not None:
-                img = resize_rgba(img, req.upscale_to, fast=True)
-            self.resultReady.emit(req.generation, img)
-            if not req.fast:
-                self.histogramReady.emit(req.generation, histogram_from_rgba(img))
+            work = ImageProcessor.apply_crop_rotate_flip(req.source, req.state)
+            work = ImageProcessor.apply_resize(work, req.state, fast=not req.full_quality)
+            target = fit_size_preserving_aspect(work.shape[1], work.shape[0], req.display_size[0], req.display_size[1])
+            if work.shape[1] != target[0] or work.shape[0] != target[1]:
+                work = resize_rgba(work, target, fast=not req.full_quality)
+            work = ImageProcessor.apply_color(work, req.state, skip_tonal=req.skip_tonal)
+            self.resultReady.emit(req.generation, work)
+            if req.full_quality:
+                self.histogramReady.emit(req.generation, histogram_from_rgba(work))
         except Exception as e:
             self.resultReady.emit(req.generation, e)
         self._process_next()
 
 
+<<<<<<< Updated upstream
 # ============================================================
 # Widgets
 # ============================================================
+=======
+class HistogramWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(160)
+        self.hist = {"r": np.zeros(256), "g": np.zeros(256), "b": np.zeros(256)}
+
+    def set_histogram(self, hist):
+        self.hist = hist
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillRect(self.rect(), QColor(20, 20, 22))
+        margin = 12
+        r = QRectF(margin, margin, self.width() - 2 * margin, self.height() - 2 * margin)
+        p.setPen(QPen(QColor(85, 85, 95), 1))
+        p.drawRect(r)
+        maxv = max(1, int(max(np.max(self.hist["r"]), np.max(self.hist["g"]), np.max(self.hist["b"]))))
+        colors = {"r": QColor(255, 80, 80, 120), "g": QColor(80, 255, 80, 120), "b": QColor(80, 140, 255, 120)}
+        for key in ("r", "g", "b"):
+            path = QPainterPath()
+            vals = self.hist[key].astype(np.float32) / maxv
+            for i, v in enumerate(vals):
+                x = r.left() + (i / 255.0) * r.width()
+                y = r.bottom() - v * r.height()
+                if i == 0:
+                    path.moveTo(x, r.bottom())
+                    path.lineTo(x, y)
+                else:
+                    path.lineTo(x, y)
+            path.lineTo(r.right(), r.bottom())
+            path.closeSubpath()
+            p.fillPath(path, colors[key])
+
+
+>>>>>>> Stashed changes
 class CurveEditor(QWidget):
     pointsChanged = Signal(list)
     dragFinished = Signal()
@@ -501,12 +488,17 @@ class CurveEditor(QWidget):
         self._points = [(0.0, 0.0), (1.0, 1.0)]
         self._drag_index: Optional[int] = None
         self._channel = "master"
+<<<<<<< Updated upstream
         self._colors = {
             "master": QColor(230, 230, 230),
             "red": QColor(220, 70, 70),
             "green": QColor(70, 220, 70),
             "blue": QColor(80, 120, 240),
         }
+=======
+        self._colors = {"master": QColor(230, 230, 230), "red": QColor(220, 70, 70), "green": QColor(70, 220, 70), "blue": QColor(80, 120, 240)}
+        self._hist = {"r": np.zeros(256), "g": np.zeros(256), "b": np.zeros(256)}
+>>>>>>> Stashed changes
 
     def set_channel(self, channel: str):
         self._channel = channel
@@ -526,10 +518,7 @@ class CurveEditor(QWidget):
 
     def _to_normalized(self, pos):
         r = self._content_rect()
-        return (
-            float(np.clip((pos.x() - r.left()) / max(1.0, r.width()), 0, 1)),
-            float(np.clip((r.bottom() - pos.y()) / max(1.0, r.height()), 0, 1)),
-        )
+        return (float(np.clip((pos.x() - r.left()) / max(1.0, r.width()), 0, 1)), float(np.clip((r.bottom() - pos.y()) / max(1.0, r.height()), 0, 1)))
 
     def _find_handle(self, pos):
         for i, p in enumerate(self._points):
@@ -584,6 +573,27 @@ class CurveEditor(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.fillRect(self.rect(), QColor(24, 24, 26))
         r = self._content_rect()
+<<<<<<< Updated upstream
+=======
+        channel_map = {"master": ("r", "g", "b"), "red": ("r",), "green": ("g",), "blue": ("b",)}
+        visible_channels = channel_map.get(self._channel, ("r", "g", "b"))
+        maxv = max(1, int(max(np.max(self._hist[ch]) for ch in visible_channels)))
+        hist_colors = {"r": QColor(255, 80, 80, 85), "g": QColor(80, 255, 80, 85), "b": QColor(80, 140, 255, 85)}
+        for key in visible_channels:
+            path = QPainterPath()
+            vals = self._hist[key].astype(np.float32) / maxv
+            for i, v in enumerate(vals):
+                x = r.left() + (i / 255.0) * r.width()
+                y = r.bottom() - v * r.height()
+                if i == 0:
+                    path.moveTo(x, r.bottom())
+                    path.lineTo(x, y)
+                else:
+                    path.lineTo(x, y)
+            path.lineTo(r.right(), r.bottom())
+            path.closeSubpath()
+            p.fillPath(path, hist_colors[key])
+>>>>>>> Stashed changes
         p.setPen(QPen(QColor(55, 55, 60), 1))
         for i in range(5):
             x = r.left() + i * (r.width() / 4)
@@ -664,6 +674,10 @@ class ImageView(QGraphicsView):
     def set_image(self, pixmap: QPixmap):
         self.pixmap_item.setPixmap(pixmap)
         self.scene().setSceneRect(QRectF(pixmap.rect()))
+<<<<<<< Updated upstream
+=======
+        self.viewport().update()
+>>>>>>> Stashed changes
 
     def fit_image(self):
         if not self.pixmap_item.pixmap().isNull():
@@ -683,11 +697,216 @@ class ImageView(QGraphicsView):
         self._crop_aspect_lock = enabled
         self._crop_aspect_ratio = max(0.01, ratio)
 
+<<<<<<< Updated upstream
+=======
+    def set_crop_rect(self, rect: QRect):
+        self._crop_rect = QRectF(rect)
+        self._staged_crop_rect = QRectF(rect)
+        self.viewport().update()
+
+    def clear_crop_rect(self):
+        self._crop_rect = QRectF()
+        self._staged_crop_rect = QRectF()
+        self.viewport().update()
+
+    def current_crop_rect(self) -> QRect:
+        r = self._staged_crop_rect.normalized()
+        return QRect(int(round(r.x())), int(round(r.y())), int(round(r.width())), int(round(r.height())))
+
+    def commit_staged_crop(self):
+        self._crop_rect = QRectF(self._staged_crop_rect)
+        self.viewport().update()
+
+    def revert_staged_crop(self):
+        self._staged_crop_rect = QRectF(self._crop_rect)
+        self.viewport().update()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                path = url.toLocalFile()
+                if path.lower().endswith((".png", ".jpg", ".jpeg")):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                path = url.toLocalFile()
+                if path.lower().endswith((".png", ".jpg", ".jpeg")):
+                    self.imageDropped.emit(path)
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+>>>>>>> Stashed changes
     def wheelEvent(self, event):
         if event.angleDelta().y() > 0:
             self.zoom_in()
         else:
             self.zoom_out()
+<<<<<<< Updated upstream
+=======
+        self.viewport().update()
+
+    def drawForeground(self, painter: QPainter, rect: QRectF):
+        super().drawForeground(painter, rect)
+        if not self._crop_mode or self.pixmap_item.pixmap().isNull():
+            return
+        bounds = QRectF(self.pixmap_item.pixmap().rect())
+        crop = self._staged_crop_rect.normalized() if not self._staged_crop_rect.isNull() else QRectF(bounds.center().x() - bounds.width() * 0.25, bounds.center().y() - bounds.height() * 0.25, bounds.width() * 0.5, bounds.height() * 0.5)
+        crop = crop.intersected(bounds)
+        self._staged_crop_rect = crop
+        overlay = QPainterPath()
+        overlay.addRect(bounds)
+        hole = QPainterPath()
+        hole.addRect(crop)
+        painter.fillPath(overlay.subtracted(hole), QColor(0, 0, 0, 120))
+        painter.setPen(QPen(QColor(240, 240, 245), 1.5))
+        painter.drawRect(crop)
+        thirds_x = [crop.left() + crop.width() / 3, crop.left() + 2 * crop.width() / 3]
+        thirds_y = [crop.top() + crop.height() / 3, crop.top() + 2 * crop.height() / 3]
+        painter.setPen(QPen(QColor(230, 230, 235, 100), 1))
+        for x in thirds_x:
+            painter.drawLine(QPointF(x, crop.top()), QPointF(x, crop.bottom()))
+        for y in thirds_y:
+            painter.drawLine(QPointF(crop.left(), y), QPointF(crop.right(), y))
+        hs = max(4.0, 10.0 / self.transform().m11())
+        centers = {
+            "tl": QPointF(crop.left(), crop.top()), "tc": QPointF(crop.center().x(), crop.top()), "tr": QPointF(crop.right(), crop.top()),
+            "rc": QPointF(crop.right(), crop.center().y()), "br": QPointF(crop.right(), crop.bottom()), "bc": QPointF(crop.center().x(), crop.bottom()),
+            "bl": QPointF(crop.left(), crop.bottom()), "lc": QPointF(crop.left(), crop.center().y()), "move": crop.center(),
+        }
+        self._handle_rects = {}
+        painter.setPen(QPen(QColor(30, 30, 35), 1))
+        painter.setBrush(QBrush(QColor(245, 245, 250)))
+        for key, center in centers.items():
+            size = hs * 1.4 if key == "move" else hs
+            rh = QRectF(center.x() - size / 2, center.y() - size / 2, size, size)
+            self._handle_rects[key] = rh
+            if key == "move":
+                painter.setBrush(QBrush(QColor(245, 245, 250, 140)))
+                painter.drawEllipse(rh)
+                painter.setBrush(QBrush(QColor(245, 245, 250)))
+            else:
+                painter.drawRect(rh)
+
+    def _scene_pos(self, event) -> QPointF:
+        return self.mapToScene(event.position().toPoint())
+
+    def _pick_handle(self, scene_pos: QPointF) -> Optional[str]:
+        for key, rect in self._handle_rects.items():
+            if rect.contains(scene_pos):
+                return key
+        if self._staged_crop_rect.contains(scene_pos):
+            return "move"
+        return None
+
+    def _clamp_crop(self, rect: QRectF) -> QRectF:
+        bounds = QRectF(self.pixmap_item.pixmap().rect())
+        rect = rect.normalized()
+        if rect.width() < MIN_CROP_SIZE:
+            rect.setWidth(MIN_CROP_SIZE)
+        if rect.height() < MIN_CROP_SIZE:
+            rect.setHeight(MIN_CROP_SIZE)
+        if rect.left() < bounds.left():
+            rect.moveLeft(bounds.left())
+        if rect.top() < bounds.top():
+            rect.moveTop(bounds.top())
+        if rect.right() > bounds.right():
+            rect.moveRight(bounds.right())
+        if rect.bottom() > bounds.bottom():
+            rect.moveBottom(bounds.bottom())
+        return rect.intersected(bounds).normalized()
+
+    def _apply_aspect_to_corner(self, base: QRectF, moving_corner: str, scene_pos: QPointF) -> QRectF:
+        ratio = self._crop_aspect_ratio
+        left, top, right, bottom = base.left(), base.top(), base.right(), base.bottom()
+        if moving_corner == "tl":
+            anchor = QPointF(base.right(), base.bottom())
+            dx = anchor.x() - scene_pos.x()
+            dy = anchor.y() - scene_pos.y()
+            if abs(dx) / max(1.0, abs(dy)) > ratio:
+                dx = abs(dy) * ratio
+            else:
+                dy = abs(dx) / ratio
+            left = anchor.x() - dx
+            top = anchor.y() - dy
+        elif moving_corner == "tr":
+            anchor = QPointF(base.left(), base.bottom())
+            dx = scene_pos.x() - anchor.x()
+            dy = anchor.y() - scene_pos.y()
+            if abs(dx) / max(1.0, abs(dy)) > ratio:
+                dx = abs(dy) * ratio
+            else:
+                dy = abs(dx) / ratio
+            right = anchor.x() + dx
+            top = anchor.y() - dy
+        elif moving_corner == "bl":
+            anchor = QPointF(base.right(), base.top())
+            dx = anchor.x() - scene_pos.x()
+            dy = scene_pos.y() - anchor.y()
+            if abs(dx) / max(1.0, abs(dy)) > ratio:
+                dx = abs(dy) * ratio
+            else:
+                dy = abs(dx) / ratio
+            left = anchor.x() - dx
+            bottom = anchor.y() + dy
+        elif moving_corner == "br":
+            anchor = QPointF(base.left(), base.top())
+            dx = scene_pos.x() - anchor.x()
+            dy = scene_pos.y() - anchor.y()
+            if abs(dx) / max(1.0, abs(dy)) > ratio:
+                dx = abs(dy) * ratio
+            else:
+                dy = abs(dx) / ratio
+            right = anchor.x() + dx
+            bottom = anchor.y() + dy
+        return QRectF(QPointF(left, top), QPointF(right, bottom)).normalized()
+
+    def _update_crop_from_handle(self, scene_pos: QPointF):
+        base = QRectF(self._crop_rect_at_drag)
+        dx = scene_pos.x() - self._drag_origin_scene.x()
+        dy = scene_pos.y() - self._drag_origin_scene.y()
+        rect = QRectF(base)
+        h = self._active_handle
+        if h == "move":
+            rect.translate(dx, dy)
+            self._staged_crop_rect = self._clamp_crop(rect)
+            return
+        if h in {"tl", "tr", "bl", "br"} and self._crop_aspect_lock:
+            self._staged_crop_rect = self._clamp_crop(self._apply_aspect_to_corner(base, h, scene_pos))
+            return
+        if h in {"tl", "tc", "tr"}:
+            rect.setTop(base.top() + dy)
+        if h in {"bl", "bc", "br"}:
+            rect.setBottom(base.bottom() + dy)
+        if h in {"tl", "lc", "bl"}:
+            rect.setLeft(base.left() + dx)
+        if h in {"tr", "rc", "br"}:
+            rect.setRight(base.right() + dx)
+        rect = rect.normalized()
+        if self._crop_aspect_lock and h in {"tc", "bc", "lc", "rc"}:
+            ratio = self._crop_aspect_ratio
+            if h in {"tc", "bc"}:
+                new_w = rect.height() * ratio
+                cx = base.center().x()
+                rect.setLeft(cx - new_w / 2)
+                rect.setRight(cx + new_w / 2)
+            else:
+                new_h = rect.width() / ratio
+                cy = base.center().y()
+                rect.setTop(cy - new_h / 2)
+                rect.setBottom(cy + new_h / 2)
+        self._staged_crop_rect = self._clamp_crop(rect)
+>>>>>>> Stashed changes
 
     def mousePressEvent(self, event):
         if self._crop_mode and event.button() == Qt.MouseButton.LeftButton:
@@ -727,21 +946,14 @@ class ImageView(QGraphicsView):
             super().mouseReleaseEvent(event)
 
 
-# ============================================================
-# Main window
-# ============================================================
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_TITLE)
         self.resize(1600, 950)
-        self.setAcceptDrops(True)
-
         self.original_rgba: Optional[np.ndarray] = None
-        self.preview_source_rgba: Optional[np.ndarray] = None
         self.current_path: Optional[str] = None
         self.preview_rgba: Optional[np.ndarray] = None
-        self.full_render_rgba: Optional[np.ndarray] = None
         self.state = AdjustmentState()
         self.history = HistoryManager()
         self.history.push(self.state)
@@ -758,7 +970,6 @@ class MainWindow(QMainWindow):
         self._full_timer = QTimer(self)
         self._full_timer.setSingleShot(True)
         self._full_timer.timeout.connect(self.request_full_render)
-
         self._fast_debounce = QTimer(self)
         self._fast_debounce.setSingleShot(True)
         self._fast_debounce.timeout.connect(self.flush_fast_render_request)
@@ -779,7 +990,6 @@ class MainWindow(QMainWindow):
         self.worker_thread.wait(1000)
         super().closeEvent(event)
 
-    # ---------------- UI ----------------
     def build_ui(self):
         self._building_ui = True
         root = QWidget()
@@ -826,7 +1036,6 @@ class MainWindow(QMainWindow):
         scroll.setWidget(body)
         layout = QVBoxLayout(body)
         self.controls = {}
-
         basic = QGroupBox("Basic grading")
         bl = QVBoxLayout(basic)
         self.controls.update(self.make_slider_group(bl, [
@@ -839,7 +1048,6 @@ class MainWindow(QMainWindow):
             ("white_balance_strength", "White balance", -100, 100, 0),
         ]))
         layout.addWidget(basic)
-
         ch = QGroupBox("Channel intensity")
         chl = QVBoxLayout(ch)
         self.controls.update(self.make_slider_group(chl, [
@@ -854,19 +1062,9 @@ class MainWindow(QMainWindow):
             row.addWidget(btn)
         chl.addLayout(row)
         layout.addWidget(ch)
-
         layout.addWidget(self.make_tone_group("Shadows", "shadows"))
         layout.addWidget(self.make_tone_group("Midtones", "midtones"))
         layout.addWidget(self.make_tone_group("Highlights", "highlights"))
-
-        cmp_box = QGroupBox("Comparison")
-        cl = QVBoxLayout(cmp_box)
-        btn = QPushButton("Toggle Before / After (Space)")
-        btn.clicked.connect(self.toggle_before_after)
-        cl.addWidget(btn)
-        cl.addWidget(QLabel("Hold space to temporarily preview the original."))
-        layout.addWidget(cmp_box)
-
         reset_box = QGroupBox("Reset")
         rl = QHBoxLayout(reset_box)
         btn_all = QPushButton("Reset All")
@@ -904,10 +1102,14 @@ class MainWindow(QMainWindow):
         l = QVBoxLayout(w)
         self.histogram_widget = HistogramWidget()
         l.addWidget(self.histogram_widget)
+<<<<<<< Updated upstream
         txt = "Histogram only refreshes after the idle/full-quality render. Fast preview skips histogram work entirely."
+=======
+        t = "Histogram updates after the idle/full-quality render and is shown inside the curve editor."
+>>>>>>> Stashed changes
         if HAS_CV2:
-            txt += " OpenCV is used for faster preview operations."
-        l.addWidget(QLabel(txt))
+            t += " OpenCV is used for faster preview operations."
+        l.addWidget(QLabel(t))
         l.addStretch(1)
         return w
 
@@ -921,7 +1123,6 @@ class MainWindow(QMainWindow):
             b.clicked.connect(cb)
             nl.addWidget(b)
         layout.addWidget(nav)
-
         transform = QGroupBox("Transform")
         tl = QGridLayout(transform)
         items = [
@@ -935,7 +1136,6 @@ class MainWindow(QMainWindow):
             b.clicked.connect(cb)
             tl.addWidget(b, r, c)
         layout.addWidget(transform)
-
         crop = QGroupBox("Crop")
         cl = QVBoxLayout(crop)
         self.crop_mode_check = QCheckBox("Enable crop mode and drag over the image")
@@ -952,7 +1152,6 @@ class MainWindow(QMainWindow):
         cl.addWidget(self.crop_ratio_combo)
         cl.addWidget(clear_crop)
         layout.addWidget(crop)
-
         resize_box = QGroupBox("Resize")
         rl = QFormLayout(resize_box)
         self.resize_w_slider, self.resize_w_label = self.make_single_slider(1, 12000, 1920)
@@ -973,6 +1172,7 @@ class MainWindow(QMainWindow):
         layout.addStretch(1)
         return w
 
+<<<<<<< Updated upstream
     def build_session_tab(self):
         w = QWidget()
         l = QVBoxLayout(w)
@@ -999,6 +1199,8 @@ class MainWindow(QMainWindow):
         l.addStretch(1)
         return w
 
+=======
+>>>>>>> Stashed changes
     def create_actions(self):
         pairs = [
             ("Open", "Ctrl+O", self.open_image, "act_open"),
@@ -1019,6 +1221,17 @@ class MainWindow(QMainWindow):
         self.act_toggle_compare.setShortcut(QKeySequence(Qt.Key.Key_Space))
         self.act_toggle_compare.triggered.connect(self.toggle_before_after)
         self.addAction(self.act_toggle_compare)
+<<<<<<< Updated upstream
+=======
+        self.act_save_project = QAction("Save Project", self)
+        self.act_save_project.triggered.connect(self.save_project)
+        self.act_load_project = QAction("Load Project", self)
+        self.act_load_project.triggered.connect(self.load_project)
+        self.act_save_preset = QAction("Save Preset", self)
+        self.act_save_preset.triggered.connect(self.save_preset)
+        self.act_load_preset = QAction("Load Preset", self)
+        self.act_load_preset.triggered.connect(self.load_preset)
+>>>>>>> Stashed changes
 
     def create_toolbar(self):
         tb = QToolBar("Main")
@@ -1033,7 +1246,6 @@ class MainWindow(QMainWindow):
         cmp_act.triggered.connect(self.toggle_before_after)
         tb.addAction(cmp_act)
 
-    # ---------------- Controls ----------------
     def make_single_slider(self, mn: int, mx: int, default: int):
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(mn, mx)
@@ -1076,12 +1288,23 @@ class MainWindow(QMainWindow):
         layout.addWidget(b)
         return box
 
-    # ---------------- Helpers ----------------
-    def get_display_target_size(self):
+    def get_display_target_size(self) -> Tuple[int, int]:
         if self.original_rgba is None:
-            return None
-        h, w = self.original_rgba.shape[:2]
-        return compute_geometry_size(w, h, self.state)
+            return (800, 600)
+        base = ImageProcessor.apply_crop_rotate_flip(self.original_rgba, self.state)
+        geom_w, geom_h = base.shape[1], base.shape[0]
+        if self.state.resize.enabled and self.state.resize.width > 1 and self.state.resize.height > 1:
+            geom_w, geom_h = self.state.resize.width, self.state.resize.height
+        if self.viewer.viewport().width() <= 1 or self.viewer.viewport().height() <= 1:
+            return geom_w, geom_h
+        vp = self.viewer.viewport().size()
+        return fit_size_preserving_aspect(geom_w, geom_h, int(round((vp.width() - 8) * PREVIEW_RENDER_SCALE)), int(round((vp.height() - 8) * PREVIEW_RENDER_SCALE)))
+
+    def get_crop_reference_size(self) -> Tuple[int, int]:
+        if self.original_rgba is None:
+            return (800, 600)
+        ref = ImageProcessor.apply_crop_rotate_flip(self.original_rgba, AdjustmentState(rotation=self.state.rotation, flip_h=self.state.flip_h, flip_v=self.state.flip_v, crop=self.state.crop, resize=ResizeState(), curves=self.state.curves, shadows=self.state.shadows, midtones=self.state.midtones, highlights=self.state.highlights, brightness=self.state.brightness, contrast=self.state.contrast, gamma=self.state.gamma, exposure=self.state.exposure, temperature=self.state.temperature, tint=self.state.tint, white_balance_strength=self.state.white_balance_strength, red_intensity=self.state.red_intensity, green_intensity=self.state.green_intensity, blue_intensity=self.state.blue_intensity))
+        return ref.shape[1], ref.shape[0]
 
     def get_current_crop_ratio(self):
         text = self.crop_ratio_combo.currentText()
@@ -1096,6 +1319,61 @@ class MainWindow(QMainWindow):
 
     def update_crop_lock(self):
         self.viewer.set_crop_lock(self.crop_lock_check.isChecked(), self.get_current_crop_ratio())
+<<<<<<< Updated upstream
+=======
+        if self.crop_mode_check.isChecked():
+            self.refresh_staged_crop_aspect()
+
+    def refresh_staged_crop_aspect(self):
+        rect = self.viewer.current_crop_rect()
+        if rect.width() <= 1 or rect.height() <= 1 or not self.crop_lock_check.isChecked():
+            return
+        ratio = self.get_current_crop_ratio()
+        cx = rect.center().x()
+        cy = rect.center().y()
+        w = rect.width()
+        h = rect.height()
+        if w / max(1, h) > ratio:
+            w = int(round(h * ratio))
+        else:
+            h = int(round(w / ratio))
+        self.viewer.set_crop_rect(QRect(int(round(cx - w / 2)), int(round(cy - h / 2)), max(MIN_CROP_SIZE, w), max(MIN_CROP_SIZE, h)))
+
+    def geometry_rect_to_display_rect(self, rect: QRect) -> QRect:
+        ref_w, ref_h = self.get_crop_reference_size()
+        disp_w, disp_h = fit_size_preserving_aspect(ref_w, ref_h, *self.get_display_target_size())
+        sx = disp_w / max(1, ref_w)
+        sy = disp_h / max(1, ref_h)
+        return QRect(int(round(rect.x() * sx)), int(round(rect.y() * sy)), max(1, int(round(rect.width() * sx))), max(1, int(round(rect.height() * sy))))
+
+    def display_rect_to_geometry_rect(self, rect: QRect) -> QRect:
+        ref_w, ref_h = self.get_crop_reference_size()
+        disp_w, disp_h = fit_size_preserving_aspect(ref_w, ref_h, *self.get_display_target_size())
+        sx = ref_w / max(1, disp_w)
+        sy = ref_h / max(1, disp_h)
+        x = int(round(rect.x() * sx))
+        y = int(round(rect.y() * sy))
+        w = int(round(rect.width() * sx))
+        h = int(round(rect.height() * sy))
+        x = max(0, min(x, ref_w - 1))
+        y = max(0, min(y, ref_h - 1))
+        w = max(1, min(w, ref_w - x))
+        h = max(1, min(h, ref_h - y))
+        return QRect(x, y, w, h)
+
+    def sync_viewer_crop_rect(self):
+        if self.original_rgba is None:
+            self.viewer.clear_crop_rect()
+            return
+        ref_w, ref_h = self.get_crop_reference_size()
+        disp_w, disp_h = fit_size_preserving_aspect(ref_w, ref_h, *self.get_display_target_size())
+        if self.state.crop.enabled and self.state.crop.w > 1 and self.state.crop.h > 1:
+            self.viewer.set_crop_rect(self.geometry_rect_to_display_rect(QRect(self.state.crop.x, self.state.crop.y, self.state.crop.w, self.state.crop.h)))
+        else:
+            self.viewer.set_crop_rect(QRect(int(disp_w * 0.15), int(disp_h * 0.15), int(disp_w * 0.7), int(disp_h * 0.7)))
+        if self.crop_mode_check.isChecked():
+            self.refresh_staged_crop_aspect()
+>>>>>>> Stashed changes
 
     def request_fast_render(self, skip_tonal: bool):
         if self.original_rgba is None:
@@ -1109,33 +1387,13 @@ class MainWindow(QMainWindow):
         state, skip_tonal = self._pending_fast_render
         self._pending_fast_render = None
         self._render_generation += 1
-        gen = self._render_generation
-        self.worker.submit(
-            RenderRequest(
-                generation=gen,
-                source=self.preview_source_rgba,
-                state=state,
-                fast=True,
-                upscale_to=self.get_display_target_size(),
-                skip_tonal=skip_tonal,
-            )
-        )
+        self.worker.submit(RenderRequest(self._render_generation, self.original_rgba, state, self.get_display_target_size(), False, skip_tonal))
 
     def request_full_render(self):
         if self.original_rgba is None:
             return
         self._render_generation += 1
-        gen = self._render_generation
-        self.worker.submit(
-            RenderRequest(
-                generation=gen,
-                source=self.original_rgba,
-                state=self.state.clone(),
-                fast=False,
-                upscale_to=None,
-                skip_tonal=False,
-            )
-        )
+        self.worker.submit(RenderRequest(self._render_generation, self.original_rgba, self.state.clone(), self.get_display_target_size(), True, False))
 
     def update_viewer_pixmap(self, show_original: bool = False):
         arr = self.original_rgba if show_original else self.preview_rgba
@@ -1150,6 +1408,7 @@ class MainWindow(QMainWindow):
             self.viewer.fit_image()
             self._pending_fit = False
 
+<<<<<<< Updated upstream
     # ---------------- Events ----------------
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -1161,6 +1420,38 @@ class MainWindow(QMainWindow):
             path = urls[0].toLocalFile()
             if path.lower().endswith((".png", ".jpg", ".jpeg")):
                 self.load_image(path)
+=======
+    def apply_histogram_to_widgets(self, hist):
+        self._latest_histogram = hist
+        self.histogram_widget.set_histogram(hist)
+        self.curve_editor.set_histogram(hist)
+
+    def confirm_discard_unsaved(self) -> bool:
+        if not self._is_dirty:
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Unsaved project")
+        box.setText("You have unsaved changes.")
+        box.setInformativeText("Do you want to save your project before exiting?")
+        save_btn = box.addButton("Save Project", QMessageBox.ButtonRole.AcceptRole)
+        discard_btn = box.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked == save_btn:
+            self.save_project()
+            return not self._is_dirty
+        if clicked == discard_btn:
+            return True
+        return False
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.original_rgba is not None:
+            self.request_fast_render(skip_tonal=self._interactive_drag)
+            self._full_timer.start(FULL_IDLE_DELAY_MS)
+>>>>>>> Stashed changes
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Space and not self.preview_original_while_held:
@@ -1176,7 +1467,6 @@ class MainWindow(QMainWindow):
             return
         super().keyReleaseEvent(event)
 
-    # ---------------- Render callbacks ----------------
     def on_render_result(self, generation: int, payload):
         if generation != self._render_generation:
             return
@@ -1192,7 +1482,6 @@ class MainWindow(QMainWindow):
         self._latest_histogram = hist
         self.histogram_widget.set_histogram(hist)
 
-    # ---------------- File ops ----------------
     def open_image(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open Image", "", SUPPORTED_INPUT)
         if path:
@@ -1202,13 +1491,11 @@ class MainWindow(QMainWindow):
         try:
             img = Image.open(path)
             self.original_rgba = pil_to_numpy_rgba(img)
-            self.preview_source_rgba = downscale_rgba(self.original_rgba, FAST_PREVIEW_MAX_SIDE, fast=True)
             self.current_path = path
             self.state = AdjustmentState()
             self.history.clear()
             self.history.push(self.state)
             self.preview_rgba = self.original_rgba.copy()
-            self.full_render_rgba = self.original_rgba.copy()
             self._display_pixmap_key = None
             h, w = self.original_rgba.shape[:2]
             self.resize_w_slider.setValue(w)
@@ -1234,7 +1521,9 @@ class MainWindow(QMainWindow):
         if not ext:
             ext = ".png" if "PNG" in filt else ".jpg"
             path += ext
-        export_arr, _ = ImageProcessor.apply_color(ImageProcessor.apply_geometry(self.original_rgba, self.state, fast=False), self.state, fast=False, skip_tonal=False)
+        work = ImageProcessor.apply_crop_rotate_flip(self.original_rgba, self.state)
+        work = ImageProcessor.apply_resize(work, self.state, fast=False)
+        export_arr = ImageProcessor.apply_color(work, self.state, skip_tonal=False)
         try:
             if ext in (".jpg", ".jpeg"):
                 if np.any(export_arr[:, :, 3] < 255):
@@ -1280,7 +1569,6 @@ class MainWindow(QMainWindow):
             self.load_image(img_path)
             self.commit_state(AdjustmentState.from_json(data.get("adjustments", {})), push_history=True)
 
-    # ---------------- State / controls ----------------
     def commit_state(self, state: AdjustmentState, push_history: bool = False):
         self.state = state
         self.sync_controls_from_state()
@@ -1299,20 +1587,21 @@ class MainWindow(QMainWindow):
 
     def sync_controls_from_state(self):
         self._building_ui = True
-        mappings = [
-            ("brightness", self.state.brightness), ("contrast", self.state.contrast), ("gamma", self.state.gamma),
-            ("exposure", self.state.exposure), ("temperature", self.state.temperature), ("tint", self.state.tint),
-            ("white_balance_strength", self.state.white_balance_strength), ("red_intensity", self.state.red_intensity),
-            ("green_intensity", self.state.green_intensity), ("blue_intensity", self.state.blue_intensity),
-        ]
+        mappings = [("brightness", self.state.brightness), ("contrast", self.state.contrast), ("gamma", self.state.gamma), ("exposure", self.state.exposure), ("temperature", self.state.temperature), ("tint", self.state.tint), ("white_balance_strength", self.state.white_balance_strength), ("red_intensity", self.state.red_intensity), ("green_intensity", self.state.green_intensity), ("blue_intensity", self.state.blue_intensity)]
         for key, val in mappings:
-            self.controls[key][0].setValue(int(round(val * 100)) if key != "gamma" else int(round(val * 100)))
+            self.controls[key][0].setValue(int(round(val * 100)))
         for prefix in ("shadows", "midtones", "highlights"):
             tone = getattr(self.state, prefix)
             for ch in ("r", "g", "b"):
                 self.controls[f"{prefix}_{ch}"][0].setValue(int(round(getattr(tone, ch) * 100)))
-        self.resize_w_slider.setValue(max(1, self.state.resize.width or self.resize_w_slider.value()))
-        self.resize_h_slider.setValue(max(1, self.state.resize.height or self.resize_h_slider.value()))
+        if self.original_rgba is not None:
+            base_h, base_w = self.original_rgba.shape[:2]
+        else:
+            base_w, base_h = 1920, 1080
+        target_w = self.state.resize.width if self.state.resize.enabled and self.state.resize.width > 0 else base_w
+        target_h = self.state.resize.height if self.state.resize.enabled and self.state.resize.height > 0 else base_h
+        self.resize_w_slider.setValue(max(1, target_w))
+        self.resize_h_slider.setValue(max(1, target_h))
         self.resize_enable.setChecked(self.state.resize.enabled)
         self.sync_curve_editor_from_state()
         self.update_crop_lock()
@@ -1327,7 +1616,6 @@ class MainWindow(QMainWindow):
         self.act_undo.setEnabled(self.history.can_undo())
         self.act_redo.setEnabled(self.history.can_redo())
 
-    # ---------------- Adjustment callbacks ----------------
     def on_slider_changed(self, key: str):
         if self._building_ui:
             return
@@ -1357,24 +1645,24 @@ class MainWindow(QMainWindow):
         setattr(st.curves, self.current_curve_channel, points)
         self.commit_state(st, push_history=False)
 
+<<<<<<< Updated upstream
     def on_crop_committed(self, rect: QRect):
         if self.original_rgba is None or self.preview_rgba is None:
+=======
+    def on_crop_preview_changed(self, rect: QRect):
+        self.statusBar().showMessage(f"Crop preview: {rect.width()} × {rect.height()}")
+
+    def apply_crop_from_view(self):
+        if self.original_rgba is None:
+>>>>>>> Stashed changes
             return
-        pix = self.viewer.pixmap_item.pixmap()
-        if pix.isNull():
-            return
-        disp_w = max(1, pix.width())
-        disp_h = max(1, pix.height())
-        src_h, src_w = self.original_rgba.shape[:2]
-        target_w, target_h = compute_geometry_size(src_w, src_h, self.state)
-        sx = target_w / disp_w
-        sy = target_h / disp_h
-        x = int(round(rect.x() * sx))
-        y = int(round(rect.y() * sy))
-        w = int(round(rect.width() * sx))
-        h = int(round(rect.height() * sy))
+        geom_rect = self.display_rect_to_geometry_rect(self.viewer.current_crop_rect())
         st = self.state.clone()
+<<<<<<< Updated upstream
         st.crop = CropRect(x, y, w, h, True)
+=======
+        st.crop = CropRect(geom_rect.x(), geom_rect.y(), geom_rect.width(), geom_rect.height(), True)
+>>>>>>> Stashed changes
         self.commit_state(st, push_history=True)
         self.crop_mode_check.setChecked(False)
 
@@ -1382,17 +1670,21 @@ class MainWindow(QMainWindow):
         if self._building_ui or self.original_rgba is None:
             return
         self._interactive_drag = True
+        if self.state.crop.enabled and self.state.crop.w > 1 and self.state.crop.h > 1:
+            base_w, base_h = self.state.crop.w, self.state.crop.h
+        else:
+            base_h, base_w = self.original_rgba.shape[:2]
         if self.resize_lock_check.isChecked():
             self._building_ui = True
-            if self.state.crop.enabled and self.state.crop.w > 1 and self.state.crop.h > 1:
-                base_w, base_h = self.state.crop.w, self.state.crop.h
-            else:
-                base_h, base_w = self.original_rgba.shape[:2]
             ratio = base_w / max(1, base_h)
             if changed_axis == "w":
-                self.resize_h_slider.setValue(min(self.resize_h_slider.maximum(), max(1, int(round(self.resize_w_slider.value() / ratio)))))
+                new_w = max(1, int(self.resize_w_slider.value()))
+                new_h = max(1, int(round(new_w / ratio)))
+                self.resize_h_slider.setValue(min(self.resize_h_slider.maximum(), new_h))
             else:
-                self.resize_w_slider.setValue(min(self.resize_w_slider.maximum(), max(1, int(round(self.resize_h_slider.value() * ratio)))))
+                new_h = max(1, int(self.resize_h_slider.value()))
+                new_w = max(1, int(round(new_h * ratio)))
+                self.resize_w_slider.setValue(min(self.resize_w_slider.maximum(), new_w))
             self._building_ui = False
         self.on_resize_controls_changed()
 
@@ -1400,12 +1692,11 @@ class MainWindow(QMainWindow):
         if self._building_ui:
             return
         st = self.state.clone()
-        st.resize.width = int(self.resize_w_slider.value())
-        st.resize.height = int(self.resize_h_slider.value())
         st.resize.enabled = self.resize_enable.isChecked()
+        st.resize.width = max(1, int(self.resize_w_slider.value()))
+        st.resize.height = max(1, int(self.resize_h_slider.value()))
         self.commit_state(st, push_history=False)
 
-    # ---------------- Commands ----------------
     def undo(self):
         self.finalize_interaction()
         self.state = self.history.undo(self.state)
@@ -1485,9 +1776,12 @@ class MainWindow(QMainWindow):
         self.update_viewer_pixmap(show_original=self.preview_original_while_held)
 
 
+<<<<<<< Updated upstream
 # ============================================================
 # Bootstrap
 # ============================================================
+=======
+>>>>>>> Stashed changes
 def install_slider_commit_hooks(window: MainWindow):
     sliders = [v[0] for v in window.controls.values()] + [window.resize_w_slider, window.resize_h_slider]
     seen = set()
