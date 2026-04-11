@@ -139,6 +139,93 @@ def histogram_from_rgba(arr: np.ndarray) -> Dict[str, np.ndarray]:
     }
 
 
+def transformed_size(width: int, height: int, rotation: int) -> Tuple[int, int]:
+    return (height, width) if rotation % 180 != 0 else (width, height)
+
+
+def transform_point_original_to_view(x: float, y: float, width: int, height: int, rotation: int, flip_h: bool, flip_v: bool) -> Tuple[float, float]:
+    rot = rotation % 360
+    if rot == 0:
+        tx, ty = x, y
+        tw, th = width, height
+    elif rot == 90:
+        tx, ty = height - y, x
+        tw, th = height, width
+    elif rot == 180:
+        tx, ty = width - x, height - y
+        tw, th = width, height
+    else:  # 270
+        tx, ty = y, width - x
+        tw, th = height, width
+
+    if flip_h:
+        tx = tw - tx
+    if flip_v:
+        ty = th - ty
+    return tx, ty
+
+
+def inverse_transform_point_view_to_original(x: float, y: float, width: int, height: int, rotation: int, flip_h: bool, flip_v: bool) -> Tuple[float, float]:
+    rot = rotation % 360
+    tw, th = transformed_size(width, height, rot)
+
+    if flip_h:
+        x = tw - x
+    if flip_v:
+        y = th - y
+
+    if rot == 0:
+        return x, y
+    if rot == 90:
+        return y, height - x
+    if rot == 180:
+        return width - x, height - y
+    return width - y, x
+
+
+def rect_view_to_original(rect: QRect, width: int, height: int, rotation: int, flip_h: bool, flip_v: bool) -> QRect:
+    corners = [
+        (rect.x(), rect.y()),
+        (rect.x() + rect.width(), rect.y()),
+        (rect.x(), rect.y() + rect.height()),
+        (rect.x() + rect.width(), rect.y() + rect.height()),
+    ]
+    pts = [inverse_transform_point_view_to_original(px, py, width, height, rotation, flip_h, flip_v) for px, py in corners]
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    left = int(round(min(xs)))
+    top = int(round(min(ys)))
+    right = int(round(max(xs)))
+    bottom = int(round(max(ys)))
+    left = max(0, min(left, width - 1))
+    top = max(0, min(top, height - 1))
+    right = max(left + 1, min(right, width))
+    bottom = max(top + 1, min(bottom, height))
+    return QRect(left, top, right - left, bottom - top)
+
+
+def rect_original_to_view(rect: QRect, width: int, height: int, rotation: int, flip_h: bool, flip_v: bool) -> QRect:
+    corners = [
+        (rect.x(), rect.y()),
+        (rect.x() + rect.width(), rect.y()),
+        (rect.x(), rect.y() + rect.height()),
+        (rect.x() + rect.width(), rect.y() + rect.height()),
+    ]
+    pts = [transform_point_original_to_view(px, py, width, height, rotation, flip_h, flip_v) for px, py in corners]
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    left = int(round(min(xs)))
+    top = int(round(min(ys)))
+    right = int(round(max(xs)))
+    bottom = int(round(max(ys)))
+    tw, th = transformed_size(width, height, rotation)
+    left = max(0, min(left, tw - 1))
+    top = max(0, min(top, th - 1))
+    right = max(left + 1, min(right, tw))
+    bottom = max(top + 1, min(bottom, th))
+    return QRect(left, top, right - left, bottom - top)
+
+
 @dataclass
 class CurveSet:
     master: list[tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
@@ -306,13 +393,7 @@ class ImageProcessor:
     @staticmethod
     def apply_crop_rotate_flip(img: np.ndarray, state: AdjustmentState) -> np.ndarray:
         out = img
-        if state.crop.enabled and state.crop.w > 1 and state.crop.h > 1:
-            h, w = out.shape[:2]
-            x = int(np.clip(state.crop.x, 0, max(0, w - 1)))
-            y = int(np.clip(state.crop.y, 0, max(0, h - 1)))
-            cw = int(np.clip(state.crop.w, 1, max(1, w - x)))
-            ch = int(np.clip(state.crop.h, 1, max(1, h - y)))
-            out = np.ascontiguousarray(out[y:y + ch, x:x + cw])
+        # Apply rotate/flip first so crop coordinates live in the same space the user sees.
         if state.rotation % 360 != 0:
             k = (state.rotation % 360) // 90
             out = np.ascontiguousarray(np.rot90(out, k=4 - k))
@@ -320,6 +401,13 @@ class ImageProcessor:
             out = np.ascontiguousarray(np.flip(out, axis=1))
         if state.flip_v:
             out = np.ascontiguousarray(np.flip(out, axis=0))
+        if state.crop.enabled and state.crop.w > 1 and state.crop.h > 1:
+            h, w = out.shape[:2]
+            x = int(np.clip(state.crop.x, 0, max(0, w - 1)))
+            y = int(np.clip(state.crop.y, 0, max(0, h - 1)))
+            cw = int(np.clip(state.crop.w, 1, max(1, w - x)))
+            ch = int(np.clip(state.crop.h, 1, max(1, h - y)))
+            out = np.ascontiguousarray(out[y:y + ch, x:x + cw])
         return out
 
     @staticmethod
@@ -1217,7 +1305,10 @@ class MainWindow(QMainWindow):
     def get_crop_reference_size(self) -> Tuple[int, int]:
         if self.original_rgba is None:
             return (800, 600)
-        ref = ImageProcessor.apply_crop_rotate_flip(self.original_rgba, AdjustmentState(rotation=self.state.rotation, flip_h=self.state.flip_h, flip_v=self.state.flip_v, crop=self.state.crop, resize=ResizeState(), curves=self.state.curves, shadows=self.state.shadows, midtones=self.state.midtones, highlights=self.state.highlights, brightness=self.state.brightness, contrast=self.state.contrast, gamma=self.state.gamma, exposure=self.state.exposure, temperature=self.state.temperature, tint=self.state.tint, white_balance_strength=self.state.white_balance_strength, red_intensity=self.state.red_intensity, green_intensity=self.state.green_intensity, blue_intensity=self.state.blue_intensity))
+        # Crop edits should be referenced against the rotated/flipped image BEFORE crop is applied.
+        tmp = self.state.clone()
+        tmp.crop = CropRect()
+        ref = ImageProcessor.apply_crop_rotate_flip(self.original_rgba, tmp)
         return ref.shape[1], ref.shape[0]
 
     def get_current_crop_ratio(self):
@@ -1280,7 +1371,11 @@ class MainWindow(QMainWindow):
         ref_w, ref_h = self.get_crop_reference_size()
         disp_w, disp_h = fit_size_preserving_aspect(ref_w, ref_h, *self.get_display_target_size())
         if self.state.crop.enabled and self.state.crop.w > 1 and self.state.crop.h > 1:
-            self.viewer.set_crop_rect(self.geometry_rect_to_display_rect(QRect(self.state.crop.x, self.state.crop.y, self.state.crop.w, self.state.crop.h)))
+            self.viewer.set_crop_rect(
+                self.geometry_rect_to_display_rect(
+                    QRect(self.state.crop.x, self.state.crop.y, self.state.crop.w, self.state.crop.h)
+                )
+            )
         else:
             self.viewer.set_crop_rect(QRect(int(disp_w * 0.15), int(disp_h * 0.15), int(disp_w * 0.7), int(disp_h * 0.7)))
         if self.crop_mode_check.isChecked():
@@ -1671,17 +1766,47 @@ class MainWindow(QMainWindow):
         st.resize = ResizeState()
         self.commit_state(st, push_history=True)
 
+    def remap_crop_for_new_transform(self, old_state: AdjustmentState, new_state: AdjustmentState):
+        if self.original_rgba is None:
+            return
+        if not old_state.crop.enabled or old_state.crop.w <= 1 or old_state.crop.h <= 1:
+            return
+
+        orig_h, orig_w = self.original_rgba.shape[:2]
+        old_crop_view = QRect(old_state.crop.x, old_state.crop.y, old_state.crop.w, old_state.crop.h)
+        crop_in_original = rect_view_to_original(
+            old_crop_view,
+            orig_w,
+            orig_h,
+            old_state.rotation,
+            old_state.flip_h,
+            old_state.flip_v,
+        )
+        new_crop_view = rect_original_to_view(
+            crop_in_original,
+            orig_w,
+            orig_h,
+            new_state.rotation,
+            new_state.flip_h,
+            new_state.flip_v,
+        )
+        new_state.crop = CropRect(new_crop_view.x(), new_crop_view.y(), new_crop_view.width(), new_crop_view.height(), True)
+
     def rotate_image(self, delta: int):
+        old_state = self.state.clone()
         st = self.state.clone()
         st.rotation = (st.rotation + delta) % 360
+        self.remap_crop_for_new_transform(old_state, st)
         self.commit_state(st, push_history=True)
 
     def toggle_flip(self, axis: str):
+        old_state = self.state.clone()
         st = self.state.clone()
         if axis == "h":
             st.flip_h = not st.flip_h
         else:
             st.flip_v = not st.flip_v
+        self.remap_crop_for_new_transform(old_state, st)
         self.commit_state(st, push_history=True)
 
     def toggle_before_after(self):
