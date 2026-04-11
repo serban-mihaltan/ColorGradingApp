@@ -1,1 +1,3 @@
-from .main import main\n\nif __name__ == "__main__":\n    main()\n
+from .main import main
+if __name__ == "__main__":
+    main()
