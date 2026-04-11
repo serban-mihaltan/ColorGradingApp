@@ -105,6 +105,60 @@ def fit_size_preserving_aspect(src_w: int, src_h: int, max_w: int, max_h: int) -
     return max(1, int(round(src_w * scale))), max(1, int(round(src_h * scale)))
 
 
+def unique_path(path: str) -> str:
+    directory, filename = os.path.split(path)
+    if not directory:
+        directory = os.getcwd()
+    stem, ext = os.path.splitext(filename)
+
+    if not os.path.exists(path):
+        return path
+
+    existing_numbers = set()
+    prefix = stem
+    suffix = ext
+
+    try:
+        for name in os.listdir(directory):
+            if not name.endswith(suffix):
+                continue
+            candidate_stem, candidate_ext = os.path.splitext(name)
+            if candidate_ext != suffix:
+                continue
+            if candidate_stem == prefix:
+                existing_numbers.add(0)
+                continue
+            if candidate_stem.startswith(prefix + "(") and candidate_stem.endswith(")"):
+                middle = candidate_stem[len(prefix) + 1:-1]
+                if middle.isdigit():
+                    existing_numbers.add(int(middle))
+    except Exception:
+        existing_numbers = {0} if os.path.exists(path) else set()
+
+    n = 1
+    while n in existing_numbers:
+        n += 1
+    return os.path.join(directory, f"{stem}({n}){ext}")
+
+
+def choose_save_path(parent, title: str, suggested: str, file_filter: str) -> str:
+    suggested_abs = os.path.abspath(suggested)
+    suggested_dir = os.path.dirname(suggested_abs) or os.getcwd()
+    suggested_name = os.path.basename(suggested_abs)
+    prefilled_name = os.path.basename(unique_path(os.path.join(suggested_dir, suggested_name)))
+
+    dialog = QFileDialog(parent, title, suggested_dir)
+    dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+    dialog.setNameFilter(file_filter)
+    dialog.selectFile(prefilled_name)
+    dialog.setOption(QFileDialog.Option.DontConfirmOverwrite, True)
+    if dialog.exec():
+        files = dialog.selectedFiles()
+        if files:
+            return files[0]
+    return ""
+
+
 def build_curve_lut(points: list[tuple[float, float]]) -> np.ndarray:
     pts = sorted([(float(np.clip(x, 0, 1)), float(np.clip(y, 0, 1))) for x, y in points], key=lambda p: p[0])
     if not pts:
@@ -1510,13 +1564,14 @@ class MainWindow(QMainWindow):
     def export_image(self):
         if self.original_rgba is None:
             return
-        path, filt = QFileDialog.getSaveFileName(self, "Export Image", "edited_image.png", SUPPORTED_EXPORT)
+        path = choose_save_path(self, "Export Image", "edited_image.png", SUPPORTED_EXPORT)
         if not path:
             return
         ext = os.path.splitext(path)[1].lower()
         if not ext:
-            ext = ".png" if "PNG" in filt else ".jpg"
+            ext = ".png"
             path += ext
+        path = unique_path(os.path.abspath(path))
         work = ImageProcessor.apply_crop_rotate_flip(self.original_rgba, self.state)
         work = ImageProcessor.apply_resize(work, self.state, fast=False)
         export_arr = ImageProcessor.apply_color(work, self.state, skip_tonal=False)
@@ -1533,8 +1588,11 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Export failed", str(e))
 
     def save_preset(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Save Preset", "preset.cgpreset", PRESET_FILTER)
+        path = choose_save_path(self, "Save Preset", "preset.cgpreset", PRESET_FILTER)
         if path:
+            if not os.path.splitext(path)[1]:
+                path += ".cgpreset"
+            path = unique_path(os.path.abspath(path))
             with open(path, "w", encoding="utf-8") as f:
                 json.dump({"adjustments": self.state.to_json()}, f, indent=2)
             self._is_dirty = False
@@ -1552,8 +1610,14 @@ class MainWindow(QMainWindow):
     def save_project(self):
         if self.original_rgba is None:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Save Project", self.current_project_path or "project.cgproj", PROJECT_FILTER)
+        suggested = self.current_project_path or "project.cgproj"
+        path = choose_save_path(self, "Save Project", suggested, PROJECT_FILTER)
         if path:
+            if not os.path.splitext(path)[1]:
+                path += ".cgproj"
+            abs_path = os.path.abspath(path)
+            current_abs = os.path.abspath(self.current_project_path) if self.current_project_path else None
+            path = unique_path(abs_path) if (current_abs is None or abs_path != current_abs) else abs_path
             with open(path, "w", encoding="utf-8") as f:
                 json.dump({"image_path": self.current_path, "adjustments": self.state.to_json()}, f, indent=2)
             self.current_project_path = path
