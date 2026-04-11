@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Tuple
@@ -110,33 +111,22 @@ def unique_path(path: str) -> str:
     if not directory:
         directory = os.getcwd()
     stem, ext = os.path.splitext(filename)
-
     if not os.path.exists(path):
         return path
-
-    existing_numbers = set()
-    prefix = stem
-    suffix = ext
-
+    pattern = re.compile(rf"^{re.escape(stem)}\((\d+)\){re.escape(ext)}$")
+    used = set()
     try:
         for name in os.listdir(directory):
-            if not name.endswith(suffix):
+            if name == f"{stem}{ext}":
+                used.add(0)
                 continue
-            candidate_stem, candidate_ext = os.path.splitext(name)
-            if candidate_ext != suffix:
-                continue
-            if candidate_stem == prefix:
-                existing_numbers.add(0)
-                continue
-            if candidate_stem.startswith(prefix + "(") and candidate_stem.endswith(")"):
-                middle = candidate_stem[len(prefix) + 1:-1]
-                if middle.isdigit():
-                    existing_numbers.add(int(middle))
+            m = pattern.match(name)
+            if m:
+                used.add(int(m.group(1)))
     except Exception:
-        existing_numbers = {0} if os.path.exists(path) else set()
-
+        used = {0}
     n = 1
-    while n in existing_numbers:
+    while n in used:
         n += 1
     return os.path.join(directory, f"{stem}({n}){ext}")
 
@@ -144,13 +134,11 @@ def unique_path(path: str) -> str:
 def choose_save_path(parent, title: str, suggested: str, file_filter: str) -> str:
     suggested_abs = os.path.abspath(suggested)
     suggested_dir = os.path.dirname(suggested_abs) or os.getcwd()
-    suggested_name = os.path.basename(suggested_abs)
-    prefilled_name = os.path.basename(unique_path(os.path.join(suggested_dir, suggested_name)))
-
+    suggested_name = os.path.basename(unique_path(suggested_abs))
     dialog = QFileDialog(parent, title, suggested_dir)
     dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
     dialog.setNameFilter(file_filter)
-    dialog.selectFile(prefilled_name)
+    dialog.selectFile(suggested_name)
     dialog.setOption(QFileDialog.Option.DontConfirmOverwrite, True)
     if dialog.exec():
         files = dialog.selectedFiles()
@@ -159,7 +147,7 @@ def choose_save_path(parent, title: str, suggested: str, file_filter: str) -> st
     return ""
 
 
-def build_curve_lut(points: list[tuple[float, float]]) -> np.ndarray:
+def build_curve_lut(points: List[Tuple[float, float]]) -> np.ndarray:
     pts = sorted([(float(np.clip(x, 0, 1)), float(np.clip(y, 0, 1))) for x, y in points], key=lambda p: p[0])
     if not pts:
         pts = [(0.0, 0.0), (1.0, 1.0)]
@@ -208,10 +196,9 @@ def transform_point_original_to_view(x: float, y: float, width: int, height: int
     elif rot == 180:
         tx, ty = width - x, height - y
         tw, th = width, height
-    else:  # 270
+    else:
         tx, ty = y, width - x
         tw, th = height, width
-
     if flip_h:
         tx = tw - tx
     if flip_v:
@@ -222,12 +209,10 @@ def transform_point_original_to_view(x: float, y: float, width: int, height: int
 def inverse_transform_point_view_to_original(x: float, y: float, width: int, height: int, rotation: int, flip_h: bool, flip_v: bool) -> Tuple[float, float]:
     rot = rotation % 360
     tw, th = transformed_size(width, height, rot)
-
     if flip_h:
         x = tw - x
     if flip_v:
         y = th - y
-
     if rot == 0:
         return x, y
     if rot == 90:
@@ -282,14 +267,12 @@ def rect_original_to_view(rect: QRect, width: int, height: int, rotation: int, f
 
 @dataclass
 class CurveSet:
-    master: list[tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
-    red: list[tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
-    green: list[tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
-    blue: list[tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
-
+    master: List[Tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
+    red: List[Tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
+    green: List[Tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
+    blue: List[Tuple[float, float]] = field(default_factory=lambda: [(0.0, 0.0), (1.0, 1.0)])
     def to_json(self):
         return {k: [[float(x), float(y)] for x, y in getattr(self, k)] for k in ("master", "red", "green", "blue")}
-
     @staticmethod
     def from_json(data: Dict) -> "CurveSet":
         cs = CurveSet()
@@ -304,10 +287,8 @@ class ToneRGB:
     r: float = 0.0
     g: float = 0.0
     b: float = 0.0
-
     def to_json(self):
         return asdict(self)
-
     @staticmethod
     def from_json(data: Dict) -> "ToneRGB":
         return ToneRGB(float(data.get("r", 0.0)), float(data.get("g", 0.0)), float(data.get("b", 0.0)))
@@ -320,10 +301,8 @@ class CropRect:
     w: int = 0
     h: int = 0
     enabled: bool = False
-
     def to_json(self):
         return asdict(self)
-
     @staticmethod
     def from_json(data: Dict) -> "CropRect":
         return CropRect(int(data.get("x", 0)), int(data.get("y", 0)), int(data.get("w", 0)), int(data.get("h", 0)), bool(data.get("enabled", False)))
@@ -334,10 +313,8 @@ class ResizeState:
     width: int = 0
     height: int = 0
     enabled: bool = False
-
     def to_json(self):
         return asdict(self)
-
     @staticmethod
     def from_json(data: Dict) -> "ResizeState":
         return ResizeState(int(data.get("width", 0)), int(data.get("height", 0)), bool(data.get("enabled", False)))
@@ -364,10 +341,8 @@ class AdjustmentState:
     crop: CropRect = field(default_factory=CropRect)
     resize: ResizeState = field(default_factory=ResizeState)
     curves: CurveSet = field(default_factory=CurveSet)
-
     def clone(self) -> "AdjustmentState":
         return copy.deepcopy(self)
-
     def to_json(self):
         return {
             "brightness": self.brightness,
@@ -390,7 +365,6 @@ class AdjustmentState:
             "resize": self.resize.to_json(),
             "curves": self.curves.to_json(),
         }
-
     @staticmethod
     def from_json(data: Dict) -> "AdjustmentState":
         st = AdjustmentState()
@@ -410,31 +384,25 @@ class AdjustmentState:
 
 class HistoryManager:
     def __init__(self):
-        self.undo_stack: list[AdjustmentState] = []
-        self.redo_stack: list[AdjustmentState] = []
-
+        self.undo_stack: List[AdjustmentState] = []
+        self.redo_stack: List[AdjustmentState] = []
     def clear(self):
         self.undo_stack.clear()
         self.redo_stack.clear()
-
     def push(self, state: AdjustmentState):
         if self.undo_stack and self.undo_stack[-1].to_json() == state.to_json():
             return
         self.undo_stack.append(state.clone())
         self.redo_stack.clear()
-
     def can_undo(self) -> bool:
         return len(self.undo_stack) > 1
-
     def can_redo(self) -> bool:
         return len(self.redo_stack) > 0
-
     def undo(self, current: AdjustmentState) -> AdjustmentState:
         if not self.can_undo():
             return current
         self.redo_stack.append(self.undo_stack.pop())
         return self.undo_stack[-1].clone()
-
     def redo(self, current: AdjustmentState) -> AdjustmentState:
         if not self.can_redo():
             return current
@@ -445,29 +413,39 @@ class HistoryManager:
 
 class ImageProcessor:
     @staticmethod
-    def apply_crop_rotate_flip(img: np.ndarray, state: AdjustmentState) -> np.ndarray:
+    def apply_transform(img: np.ndarray, rotation: int, flip_h: bool, flip_v: bool) -> np.ndarray:
         out = img
-        # Apply rotate/flip first so crop coordinates live in the same space the user sees.
-        if state.rotation % 360 != 0:
-            k = (state.rotation % 360) // 90
+        if rotation % 360 != 0:
+            k = (rotation % 360) // 90
             out = np.ascontiguousarray(np.rot90(out, k=4 - k))
-        if state.flip_h:
+        if flip_h:
             out = np.ascontiguousarray(np.flip(out, axis=1))
-        if state.flip_v:
+        if flip_v:
             out = np.ascontiguousarray(np.flip(out, axis=0))
-        if state.crop.enabled and state.crop.w > 1 and state.crop.h > 1:
+        return out
+
+    @staticmethod
+    def apply_crop(img: np.ndarray, crop: CropRect) -> np.ndarray:
+        out = img
+        if crop.enabled and crop.w > 1 and crop.h > 1:
             h, w = out.shape[:2]
-            x = int(np.clip(state.crop.x, 0, max(0, w - 1)))
-            y = int(np.clip(state.crop.y, 0, max(0, h - 1)))
-            cw = int(np.clip(state.crop.w, 1, max(1, w - x)))
-            ch = int(np.clip(state.crop.h, 1, max(1, h - y)))
+            x = int(np.clip(crop.x, 0, max(0, w - 1)))
+            y = int(np.clip(crop.y, 0, max(0, h - 1)))
+            cw = int(np.clip(crop.w, 1, max(1, w - x)))
+            ch = int(np.clip(crop.h, 1, max(1, h - y)))
             out = np.ascontiguousarray(out[y:y + ch, x:x + cw])
         return out
 
     @staticmethod
-    def apply_resize(img: np.ndarray, state: AdjustmentState, fast: bool) -> np.ndarray:
-        if state.resize.enabled and state.resize.width > 1 and state.resize.height > 1:
-            return resize_rgba(img, (state.resize.width, state.resize.height), fast=fast)
+    def geometry_pre_resize(img: np.ndarray, state: AdjustmentState) -> np.ndarray:
+        out = ImageProcessor.apply_transform(img, state.rotation, state.flip_h, state.flip_v)
+        out = ImageProcessor.apply_crop(out, state.crop)
+        return out
+
+    @staticmethod
+    def apply_resize(img: np.ndarray, resize_state: ResizeState, fast: bool) -> np.ndarray:
+        if resize_state.enabled and resize_state.width > 1 and resize_state.height > 1:
+            return resize_rgba(img, (resize_state.width, resize_state.height), fast=fast)
         return img
 
     @staticmethod
@@ -528,17 +506,14 @@ class RenderRequest:
 class RenderWorker(QObject):
     resultReady = Signal(int, object)
     histogramReady = Signal(int, object)
-
     def __init__(self):
         super().__init__()
         self.pending: Optional[RenderRequest] = None
         self.busy = False
-
     def submit(self, request: RenderRequest):
         self.pending = request
         if not self.busy:
             self._process_next()
-
     def _process_next(self):
         if self.pending is None:
             self.busy = False
@@ -547,8 +522,8 @@ class RenderWorker(QObject):
         req = self.pending
         self.pending = None
         try:
-            work = ImageProcessor.apply_crop_rotate_flip(req.source, req.state)
-            work = ImageProcessor.apply_resize(work, req.state, fast=not req.full_quality)
+            base = ImageProcessor.geometry_pre_resize(req.source, req.state)
+            work = ImageProcessor.apply_resize(base, req.state.resize, fast=not req.full_quality)
             target = fit_size_preserving_aspect(work.shape[1], work.shape[0], req.display_size[0], req.display_size[1])
             if work.shape[1] != target[0] or work.shape[0] != target[1]:
                 work = resize_rgba(work, target, fast=not req.full_quality)
@@ -566,11 +541,9 @@ class HistogramWidget(QWidget):
         super().__init__(parent)
         self.setMinimumHeight(160)
         self.hist = {"r": np.zeros(256), "g": np.zeros(256), "b": np.zeros(256)}
-
     def set_histogram(self, hist):
         self.hist = hist
         self.update()
-
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -600,7 +573,6 @@ class HistogramWidget(QWidget):
 class CurveEditor(QWidget):
     pointsChanged = Signal(list)
     dragFinished = Signal()
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumHeight(300)
@@ -611,40 +583,32 @@ class CurveEditor(QWidget):
         self._channel = "master"
         self._colors = {"master": QColor(230, 230, 230), "red": QColor(220, 70, 70), "green": QColor(70, 220, 70), "blue": QColor(80, 120, 240)}
         self._hist = {"r": np.zeros(256), "g": np.zeros(256), "b": np.zeros(256)}
-
     def set_channel(self, channel: str):
         self._channel = channel
         self.update()
-
     def set_points(self, points):
         self._points = sorted(points, key=lambda p: p[0])
         self.update()
-
     def set_histogram(self, hist):
         self._hist = hist
         self.update()
-
     def _content_rect(self) -> QRectF:
         m = 20
         side = max(40.0, min(self.width() - 2 * m, self.height() - 2 * m))
         x = (self.width() - side) / 2.0
         y = (self.height() - side) / 2.0
         return QRectF(x, y, side, side)
-
     def _to_widget(self, p):
         r = self._content_rect()
         return QPointF(r.left() + p[0] * r.width(), r.bottom() - p[1] * r.height())
-
     def _to_normalized(self, pos):
         r = self._content_rect()
         return (float(np.clip((pos.x() - r.left()) / max(1.0, r.width()), 0, 1)), float(np.clip((r.bottom() - pos.y()) / max(1.0, r.height()), 0, 1)))
-
     def _find_handle(self, pos):
         for i, p in enumerate(self._points):
             if (self._to_widget(p) - pos).manhattanLength() <= 12:
                 return i
         return None
-
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             idx = self._find_handle(event.position())
@@ -664,7 +628,6 @@ class CurveEditor(QWidget):
                 self.pointsChanged.emit(list(self._points))
                 self.dragFinished.emit()
                 self.update()
-
     def mouseMoveEvent(self, event):
         if self._drag_index is None:
             return
@@ -681,12 +644,10 @@ class CurveEditor(QWidget):
         self._drag_index = self._points.index((x, y))
         self.pointsChanged.emit(list(self._points))
         self.update()
-
     def mouseReleaseEvent(self, event):
         if self._drag_index is not None:
             self._drag_index = None
             self.dragFinished.emit()
-
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -735,7 +696,6 @@ class CurveEditor(QWidget):
 class ImageView(QGraphicsView):
     cropPreviewChanged = Signal(QRect)
     imageDropped = Signal(str)
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
@@ -757,53 +717,38 @@ class ImageView(QGraphicsView):
         self._crop_rect_at_drag = QRectF()
         self._handle_rects: Dict[str, QRectF] = {}
         self.setMouseTracking(True)
-
     def set_image(self, pixmap: QPixmap):
         self.pixmap_item.setPixmap(pixmap)
         self.scene().setSceneRect(QRectF(pixmap.rect()))
         self.viewport().update()
-
     def fit_image(self):
         if not self.pixmap_item.pixmap().isNull():
             self.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
-
     def zoom_in(self):
         self.scale(1.2, 1.2)
-
     def zoom_out(self):
         self.scale(1 / 1.2, 1 / 1.2)
-
     def set_crop_mode(self, enabled: bool):
         self._crop_mode = enabled
         self.setDragMode(QGraphicsView.DragMode.NoDrag if enabled else QGraphicsView.DragMode.ScrollHandDrag)
         self.viewport().update()
-
     def set_crop_lock(self, enabled: bool, ratio: float):
         self._crop_aspect_lock = enabled
         self._crop_aspect_ratio = max(0.01, ratio)
-
     def set_crop_rect(self, rect: QRect):
         self._crop_rect = QRectF(rect)
         self._staged_crop_rect = QRectF(rect)
         self.viewport().update()
-
     def clear_crop_rect(self):
         self._crop_rect = QRectF()
         self._staged_crop_rect = QRectF()
         self.viewport().update()
-
     def current_crop_rect(self) -> QRect:
         r = self._staged_crop_rect.normalized()
         return QRect(int(round(r.x())), int(round(r.y())), int(round(r.width())), int(round(r.height())))
-
-    def commit_staged_crop(self):
-        self._crop_rect = QRectF(self._staged_crop_rect)
-        self.viewport().update()
-
     def revert_staged_crop(self):
         self._staged_crop_rect = QRectF(self._crop_rect)
         self.viewport().update()
-
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
@@ -812,13 +757,11 @@ class ImageView(QGraphicsView):
                     event.acceptProposedAction()
                     return
         event.ignore()
-
     def dragMoveEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
         else:
             event.ignore()
-
     def dropEvent(self, event):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
@@ -828,14 +771,12 @@ class ImageView(QGraphicsView):
                     event.acceptProposedAction()
                     return
         event.ignore()
-
     def wheelEvent(self, event):
         if event.angleDelta().y() > 0:
             self.zoom_in()
         else:
             self.zoom_out()
         self.viewport().update()
-
     def drawForeground(self, painter: QPainter, rect: QRectF):
         super().drawForeground(painter, rect)
         if not self._crop_mode or self.pixmap_item.pixmap().isNull():
@@ -859,11 +800,7 @@ class ImageView(QGraphicsView):
         for y in thirds_y:
             painter.drawLine(QPointF(crop.left(), y), QPointF(crop.right(), y))
         hs = max(4.0, 10.0 / self.transform().m11())
-        centers = {
-            "tl": QPointF(crop.left(), crop.top()), "tc": QPointF(crop.center().x(), crop.top()), "tr": QPointF(crop.right(), crop.top()),
-            "rc": QPointF(crop.right(), crop.center().y()), "br": QPointF(crop.right(), crop.bottom()), "bc": QPointF(crop.center().x(), crop.bottom()),
-            "bl": QPointF(crop.left(), crop.bottom()), "lc": QPointF(crop.left(), crop.center().y()), "move": crop.center(),
-        }
+        centers = {"tl": QPointF(crop.left(), crop.top()), "tc": QPointF(crop.center().x(), crop.top()), "tr": QPointF(crop.right(), crop.top()), "rc": QPointF(crop.right(), crop.center().y()), "br": QPointF(crop.right(), crop.bottom()), "bc": QPointF(crop.center().x(), crop.bottom()), "bl": QPointF(crop.left(), crop.bottom()), "lc": QPointF(crop.left(), crop.center().y()), "move": crop.center()}
         self._handle_rects = {}
         painter.setPen(QPen(QColor(30, 30, 35), 1))
         painter.setBrush(QBrush(QColor(245, 245, 250)))
@@ -877,10 +814,8 @@ class ImageView(QGraphicsView):
                 painter.setBrush(QBrush(QColor(245, 245, 250)))
             else:
                 painter.drawRect(rh)
-
     def _scene_pos(self, event) -> QPointF:
         return self.mapToScene(event.position().toPoint())
-
     def _pick_handle(self, scene_pos: QPointF) -> Optional[str]:
         for key, rect in self._handle_rects.items():
             if rect.contains(scene_pos):
@@ -888,7 +823,6 @@ class ImageView(QGraphicsView):
         if self._staged_crop_rect.contains(scene_pos):
             return "move"
         return None
-
     def _clamp_crop(self, rect: QRectF) -> QRectF:
         bounds = QRectF(self.pixmap_item.pixmap().rect())
         rect = rect.normalized()
@@ -905,7 +839,6 @@ class ImageView(QGraphicsView):
         if rect.bottom() > bounds.bottom():
             rect.moveBottom(bounds.bottom())
         return rect.intersected(bounds).normalized()
-
     def _apply_aspect_to_corner(self, base: QRectF, moving_corner: str, scene_pos: QPointF) -> QRectF:
         ratio = self._crop_aspect_ratio
         left, top, right, bottom = base.left(), base.top(), base.right(), base.bottom()
@@ -939,7 +872,7 @@ class ImageView(QGraphicsView):
                 dy = abs(dx) / ratio
             left = anchor.x() - dx
             bottom = anchor.y() + dy
-        elif moving_corner == "br":
+        else:
             anchor = QPointF(base.left(), base.top())
             dx = scene_pos.x() - anchor.x()
             dy = scene_pos.y() - anchor.y()
@@ -950,7 +883,6 @@ class ImageView(QGraphicsView):
             right = anchor.x() + dx
             bottom = anchor.y() + dy
         return QRectF(QPointF(left, top), QPointF(right, bottom)).normalized()
-
     def _update_crop_from_handle(self, scene_pos: QPointF):
         base = QRectF(self._crop_rect_at_drag)
         dx = scene_pos.x() - self._drag_origin_scene.x()
@@ -986,7 +918,6 @@ class ImageView(QGraphicsView):
                 rect.setTop(cy - new_h / 2)
                 rect.setBottom(cy + new_h / 2)
         self._staged_crop_rect = self._clamp_crop(rect)
-
     def mousePressEvent(self, event):
         if self._crop_mode and event.button() == Qt.MouseButton.LeftButton and not self.pixmap_item.pixmap().isNull():
             scene_pos = self._scene_pos(event)
@@ -1004,7 +935,6 @@ class ImageView(QGraphicsView):
                 self.viewport().update()
                 return
         super().mousePressEvent(event)
-
     def mouseMoveEvent(self, event):
         if self._crop_mode and self._active_handle is not None:
             scene_pos = self._scene_pos(event)
@@ -1013,7 +943,6 @@ class ImageView(QGraphicsView):
             self.viewport().update()
             return
         super().mouseMoveEvent(event)
-
     def mouseReleaseEvent(self, event):
         if self._crop_mode and event.button() == Qt.MouseButton.LeftButton and self._active_handle is not None:
             self._active_handle = None
@@ -1183,10 +1112,10 @@ class MainWindow(QMainWindow):
         l = QVBoxLayout(w)
         self.histogram_widget = HistogramWidget()
         l.addWidget(self.histogram_widget)
-        t = "Histogram updates after the idle/full-quality render and is shown inside the curve editor."
+        txt = "Histogram updates after the idle/full-quality render and is shown inside the curve editor."
         if HAS_CV2:
-            t += " OpenCV is used for faster preview operations."
-        l.addWidget(QLabel(t))
+            txt += " OpenCV is used for faster preview operations."
+        l.addWidget(QLabel(txt))
         l.addStretch(1)
         return w
 
@@ -1344,33 +1273,35 @@ class MainWindow(QMainWindow):
         layout.addWidget(b)
         return box
 
-    def get_display_target_size(self) -> Tuple[int, int]:
+    def get_pre_resize_image(self, state: Optional[AdjustmentState] = None) -> Optional[np.ndarray]:
         if self.original_rgba is None:
+            return None
+        st = state or self.state
+        return ImageProcessor.geometry_pre_resize(self.original_rgba, st)
+
+    def get_display_target_size(self) -> Tuple[int, int]:
+        pre = self.get_pre_resize_image()
+        if pre is None:
             return (800, 600)
-        base = ImageProcessor.apply_crop_rotate_flip(self.original_rgba, self.state)
-        geom_w, geom_h = base.shape[1], base.shape[0]
+        w, h = pre.shape[1], pre.shape[0]
         if self.state.resize.enabled and self.state.resize.width > 1 and self.state.resize.height > 1:
-            geom_w, geom_h = self.state.resize.width, self.state.resize.height
+            w, h = self.state.resize.width, self.state.resize.height
         if self.viewer.viewport().width() <= 1 or self.viewer.viewport().height() <= 1:
-            return geom_w, geom_h
+            return (w, h)
         vp = self.viewer.viewport().size()
-        return fit_size_preserving_aspect(geom_w, geom_h, int(round((vp.width() - 8) * PREVIEW_RENDER_SCALE)), int(round((vp.height() - 8) * PREVIEW_RENDER_SCALE)))
+        return fit_size_preserving_aspect(w, h, int(round((vp.width() - 8) * PREVIEW_RENDER_SCALE)), int(round((vp.height() - 8) * PREVIEW_RENDER_SCALE)))
 
     def get_crop_reference_size(self) -> Tuple[int, int]:
         if self.original_rgba is None:
             return (800, 600)
-        # Crop edits should be referenced against the rotated/flipped image BEFORE crop is applied.
-        tmp = self.state.clone()
-        tmp.crop = CropRect()
-        ref = ImageProcessor.apply_crop_rotate_flip(self.original_rgba, tmp)
-        return ref.shape[1], ref.shape[0]
+        transformed = ImageProcessor.apply_transform(self.original_rgba, self.state.rotation, self.state.flip_h, self.state.flip_v)
+        return transformed.shape[1], transformed.shape[0]
 
     def get_current_crop_ratio(self):
         text = self.crop_ratio_combo.currentText()
         if text == "Original" and self.original_rgba is not None:
-            if self.state.crop.enabled and self.state.crop.w > 1 and self.state.crop.h > 1:
-                return self.state.crop.w / max(1, self.state.crop.h)
-            return self.original_rgba.shape[1] / max(1, self.original_rgba.shape[0])
+            ref_w, ref_h = self.get_crop_reference_size()
+            return ref_w / max(1, ref_h)
         if ":" in text:
             a, b = text.split(":", 1)
             return float(a) / max(0.01, float(b))
@@ -1425,11 +1356,7 @@ class MainWindow(QMainWindow):
         ref_w, ref_h = self.get_crop_reference_size()
         disp_w, disp_h = fit_size_preserving_aspect(ref_w, ref_h, *self.get_display_target_size())
         if self.state.crop.enabled and self.state.crop.w > 1 and self.state.crop.h > 1:
-            self.viewer.set_crop_rect(
-                self.geometry_rect_to_display_rect(
-                    QRect(self.state.crop.x, self.state.crop.y, self.state.crop.w, self.state.crop.h)
-                )
-            )
+            self.viewer.set_crop_rect(self.geometry_rect_to_display_rect(QRect(self.state.crop.x, self.state.crop.y, self.state.crop.w, self.state.crop.h)))
         else:
             self.viewer.set_crop_rect(QRect(int(disp_w * 0.15), int(disp_h * 0.15), int(disp_w * 0.7), int(disp_h * 0.7)))
         if self.crop_mode_check.isChecked():
@@ -1572,8 +1499,8 @@ class MainWindow(QMainWindow):
             ext = ".png"
             path += ext
         path = unique_path(os.path.abspath(path))
-        work = ImageProcessor.apply_crop_rotate_flip(self.original_rgba, self.state)
-        work = ImageProcessor.apply_resize(work, self.state, fast=False)
+        work = self.get_pre_resize_image(self.state)
+        work = ImageProcessor.apply_resize(work, self.state.resize, fast=False)
         export_arr = ImageProcessor.apply_color(work, self.state, skip_tonal=False)
         try:
             if ext in (".jpg", ".jpeg"):
@@ -1667,8 +1594,9 @@ class MainWindow(QMainWindow):
             tone = getattr(self.state, prefix)
             for ch in ("r", "g", "b"):
                 self.controls[f"{prefix}_{ch}"][0].setValue(int(round(getattr(tone, ch) * 100)))
-        if self.original_rgba is not None:
-            base_h, base_w = self.original_rgba.shape[:2]
+        pre = self.get_pre_resize_image(self.state)
+        if pre is not None:
+            base_h, base_w = pre.shape[:2]
         else:
             base_w, base_h = 1920, 1080
         target_w = self.state.resize.width if self.state.resize.enabled and self.state.resize.width > 0 else base_w
@@ -1739,10 +1667,10 @@ class MainWindow(QMainWindow):
         if self._building_ui or self.original_rgba is None:
             return
         self._interactive_drag = True
-        if self.state.crop.enabled and self.state.crop.w > 1 and self.state.crop.h > 1:
-            base_w, base_h = self.state.crop.w, self.state.crop.h
-        else:
-            base_h, base_w = self.original_rgba.shape[:2]
+        base = self.get_pre_resize_image(self.state)
+        if base is None:
+            return
+        base_h, base_w = base.shape[:2]
         if self.resize_lock_check.isChecked():
             self._building_ui = True
             ratio = base_w / max(1, base_h)
@@ -1765,6 +1693,17 @@ class MainWindow(QMainWindow):
         st.resize.width = max(1, int(self.resize_w_slider.value()))
         st.resize.height = max(1, int(self.resize_h_slider.value()))
         self.commit_state(st, push_history=False)
+
+    def remap_crop_for_new_transform(self, old_state: AdjustmentState, new_state: AdjustmentState):
+        if self.original_rgba is None:
+            return
+        if not old_state.crop.enabled or old_state.crop.w <= 1 or old_state.crop.h <= 1:
+            return
+        orig_h, orig_w = self.original_rgba.shape[:2]
+        old_crop_view = QRect(old_state.crop.x, old_state.crop.y, old_state.crop.w, old_state.crop.h)
+        crop_in_original = rect_view_to_original(old_crop_view, orig_w, orig_h, old_state.rotation, old_state.flip_h, old_state.flip_v)
+        new_crop_view = rect_original_to_view(crop_in_original, orig_w, orig_h, new_state.rotation, new_state.flip_h, new_state.flip_v)
+        new_state.crop = CropRect(new_crop_view.x(), new_crop_view.y(), new_crop_view.width(), new_crop_view.height(), True)
 
     def undo(self):
         self.finalize_interaction()
@@ -1829,32 +1768,6 @@ class MainWindow(QMainWindow):
         st = self.state.clone()
         st.resize = ResizeState()
         self.commit_state(st, push_history=True)
-
-    def remap_crop_for_new_transform(self, old_state: AdjustmentState, new_state: AdjustmentState):
-        if self.original_rgba is None:
-            return
-        if not old_state.crop.enabled or old_state.crop.w <= 1 or old_state.crop.h <= 1:
-            return
-
-        orig_h, orig_w = self.original_rgba.shape[:2]
-        old_crop_view = QRect(old_state.crop.x, old_state.crop.y, old_state.crop.w, old_state.crop.h)
-        crop_in_original = rect_view_to_original(
-            old_crop_view,
-            orig_w,
-            orig_h,
-            old_state.rotation,
-            old_state.flip_h,
-            old_state.flip_v,
-        )
-        new_crop_view = rect_original_to_view(
-            crop_in_original,
-            orig_w,
-            orig_h,
-            new_state.rotation,
-            new_state.flip_h,
-            new_state.flip_v,
-        )
-        new_state.crop = CropRect(new_crop_view.x(), new_crop_view.y(), new_crop_view.width(), new_crop_view.height(), True)
 
     def rotate_image(self, delta: int):
         old_state = self.state.clone()
