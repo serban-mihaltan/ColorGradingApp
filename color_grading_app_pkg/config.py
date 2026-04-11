@@ -1,0 +1,10 @@
+APP_TITLE = "Professional Color Grading Studio"
+SUPPORTED_INPUT = "Images (*.png *.jpg *.jpeg)"
+SUPPORTED_EXPORT = "PNG (*.png);;JPEG (*.jpg *.jpeg)"
+PROJECT_FILTER = "Color Grading Project (*.cgproj)"
+PRESET_FILTER = "Color Grading Preset (*.cgpreset)"
+FULL_IDLE_DELAY_MS = 220
+RENDER_DEBOUNCE_MS = 40
+HISTOGRAM_MAX_SIDE = 512
+PREVIEW_RENDER_SCALE = 1.35
+MIN_CROP_SIZE = 12
