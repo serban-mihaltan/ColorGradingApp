@@ -17,10 +17,12 @@ except Exception:
 
 
 def pil_to_numpy_rgba(img: Image.Image) -> np.ndarray:
+    """Convert a Pillow image to a contiguous RGBA NumPy array for processing."""
     return np.ascontiguousarray(np.array(img.convert("RGBA"), dtype=np.uint8))
 
 
 def numpy_to_qimage(arr: np.ndarray) -> QImage:
+    """Convert a NumPy image array into a detached QImage for safe Qt display."""
     arr = np.ascontiguousarray(arr)
     h, w, c = arr.shape
     if c == 4:
@@ -29,10 +31,12 @@ def numpy_to_qimage(arr: np.ndarray) -> QImage:
 
 
 def numpy_to_pixmap(arr: np.ndarray) -> QPixmap:
+    """Convert a NumPy image array into a QPixmap for the viewer scene."""
     return QPixmap.fromImage(numpy_to_qimage(arr))
 
 
 def resize_rgba(arr: np.ndarray, size: Tuple[int, int], fast: bool = True) -> np.ndarray:
+    """Resize an RGBA image array using OpenCV when available, with a Pillow fallback."""
     w, h = size
     if arr.shape[1] == w and arr.shape[0] == h:
         return arr
@@ -45,6 +49,7 @@ def resize_rgba(arr: np.ndarray, size: Tuple[int, int], fast: bool = True) -> np
 
 
 def downscale_rgba(arr: np.ndarray, max_side: int) -> np.ndarray:
+    """Downscale an image so its longest side does not exceed the requested limit."""
     h, w = arr.shape[:2]
     longest = max(h, w)
     if longest <= max_side:
@@ -54,11 +59,13 @@ def downscale_rgba(arr: np.ndarray, max_side: int) -> np.ndarray:
 
 
 def hash_array(arr: np.ndarray) -> int:
+    """Build a lightweight preview hash from sampled pixels to avoid redundant UI updates."""
     sample = arr[:: max(1, arr.shape[0] // 64), :: max(1, arr.shape[1] // 64), :3]
     return int(sample.sum())
 
 
 def fit_size_preserving_aspect(src_w: int, src_h: int, max_w: int, max_h: int) -> Tuple[int, int]:
+    """Compute a fitted size that preserves aspect ratio inside a bounding box."""
     max_w = max(1, max_w)
     max_h = max(1, max_h)
     src_w = max(1, src_w)
@@ -68,6 +75,7 @@ def fit_size_preserving_aspect(src_w: int, src_h: int, max_w: int, max_h: int) -
 
 
 def unique_path(path: str) -> str:
+    """Return a non-conflicting path by appending a numeric suffix if needed."""
     directory, filename = os.path.split(path)
     if not directory:
         directory = os.getcwd()
@@ -104,6 +112,7 @@ def unique_path(path: str) -> str:
 
 
 def choose_save_path(parent, title: str, suggested: str, file_filter: str) -> str:
+    """Open a save dialog with overwrite confirmation disabled and a prefilled unique filename."""
     suggested_abs = os.path.abspath(suggested)
     suggested_dir = os.path.dirname(suggested_abs) or os.getcwd()
     suggested_name = os.path.basename(suggested_abs)
@@ -122,6 +131,7 @@ def choose_save_path(parent, title: str, suggested: str, file_filter: str) -> st
 
 
 def build_curve_lut(points: list[tuple[float, float]]) -> np.ndarray:
+    """Build a 256-entry lookup table from normalized curve control points."""
     pts = sorted([(float(np.clip(x, 0, 1)), float(np.clip(y, 0, 1))) for x, y in points], key=lambda p: p[0])
     if not pts:
         pts = [(0.0, 0.0), (1.0, 1.0)]
@@ -137,6 +147,7 @@ def build_curve_lut(points: list[tuple[float, float]]) -> np.ndarray:
 
 
 def compose_scalar_lut(brightness: float, contrast: float, gamma: float, exposure: float) -> np.ndarray:
+    """Build a scalar LUT for brightness, contrast, gamma, and exposure adjustments."""
     vals = np.linspace(0.0, 1.0, 256, dtype=np.float32)
     vals *= (2.0 ** exposure)
     vals += brightness
@@ -146,6 +157,7 @@ def compose_scalar_lut(brightness: float, contrast: float, gamma: float, exposur
 
 
 def histogram_from_rgba(arr: np.ndarray) -> Dict[str, np.ndarray]:
+    """Compute per-channel RGB histograms from an RGBA image, using a smaller preview copy."""
     src = downscale_rgba(arr, HISTOGRAM_MAX_SIDE)
     rgb = src[:, :, :3]
     return {

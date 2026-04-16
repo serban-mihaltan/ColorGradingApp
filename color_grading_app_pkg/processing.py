@@ -14,6 +14,7 @@ except Exception:
 class ImageProcessor:
     @staticmethod
     def apply_crop_rotate_flip(img: np.ndarray, state: AdjustmentState) -> np.ndarray:
+        """Apply rotation, flips, and crop in viewer-consistent order before color work."""
         out = img
         if state.rotation % 360 != 0:
             k = (state.rotation % 360) // 90
@@ -33,12 +34,14 @@ class ImageProcessor:
 
     @staticmethod
     def apply_resize(img: np.ndarray, state: AdjustmentState, fast: bool) -> np.ndarray:
+        """Resize the image when resize is enabled, preserving the current geometry output."""
         if state.resize.enabled and state.resize.width > 1 and state.resize.height > 1:
             return resize_rgba(img, (state.resize.width, state.resize.height), fast=fast)
         return img
 
     @staticmethod
     def apply_color(img: np.ndarray, state: AdjustmentState, skip_tonal: bool = False) -> np.ndarray:
+        """Apply LUT-based grading, white balance, channel intensity, and tonal-region corrections."""
         rgba = img.copy()
         rgb = rgba[:, :, :3]
         scalar_lut = compose_scalar_lut(state.brightness, state.contrast, state.gamma, state.exposure)

@@ -3,10 +3,12 @@ from PySide6.QtCore import QRect
 
 
 def transformed_size(width: int, height: int, rotation: int) -> Tuple[int, int]:
+    """Return the image size after applying a 90-degree-step rotation."""
     return (height, width) if rotation % 180 != 0 else (width, height)
 
 
 def transform_point_original_to_view(x: float, y: float, width: int, height: int, rotation: int, flip_h: bool, flip_v: bool) -> Tuple[float, float]:
+    """Map a point from original-image coordinates into rotated and flipped view coordinates."""
     rot = rotation % 360
     if rot == 0:
         tx, ty = x, y
@@ -29,6 +31,7 @@ def transform_point_original_to_view(x: float, y: float, width: int, height: int
 
 
 def inverse_transform_point_view_to_original(x: float, y: float, width: int, height: int, rotation: int, flip_h: bool, flip_v: bool) -> Tuple[float, float]:
+    """Map a point from rotated and flipped view coordinates back into original-image coordinates."""
     rot = rotation % 360
     tw, th = transformed_size(width, height, rot)
 
@@ -47,6 +50,7 @@ def inverse_transform_point_view_to_original(x: float, y: float, width: int, hei
 
 
 def rect_view_to_original(rect: QRect, width: int, height: int, rotation: int, flip_h: bool, flip_v: bool) -> QRect:
+    """Convert a rectangle from transformed view space into original-image space."""
     corners = [
         (rect.x(), rect.y()),
         (rect.x() + rect.width(), rect.y()),
@@ -68,6 +72,7 @@ def rect_view_to_original(rect: QRect, width: int, height: int, rotation: int, f
 
 
 def rect_original_to_view(rect: QRect, width: int, height: int, rotation: int, flip_h: bool, flip_v: bool) -> QRect:
+    """Convert a rectangle from original-image space into transformed view space."""
     corners = [
         (rect.x(), rect.y()),
         (rect.x() + rect.width(), rect.y()),

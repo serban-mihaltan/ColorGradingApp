@@ -12,6 +12,7 @@ class ImageView(QGraphicsView):
     imageDropped = Signal(str)
 
     def __init__(self, parent=None):
+        """Initialize the graphics-view-based image viewer and crop interaction state."""
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.setScene(QGraphicsScene(self))
@@ -34,52 +35,64 @@ class ImageView(QGraphicsView):
         self.setMouseTracking(True)
 
     def set_image(self, pixmap: QPixmap):
+        """Display a new pixmap in the graphics scene and refresh the viewport."""
         self.pixmap_item.setPixmap(pixmap)
         self.scene().setSceneRect(QRectF(pixmap.rect()))
         self.viewport().update()
 
     def fit_image(self):
+        """Fit the current image inside the view while preserving aspect ratio."""
         if not self.pixmap_item.pixmap().isNull():
             self.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
     def zoom_in(self):
+        """Zoom the image view in by a fixed factor."""
         self.scale(1.2, 1.2)
 
     def zoom_out(self):
+        """Zoom the image view out by a fixed factor."""
         self.scale(1 / 1.2, 1 / 1.2)
 
     def set_crop_mode(self, enabled: bool):
+        """Enable or disable interactive crop editing mode."""
         self._crop_mode = enabled
         self.setDragMode(QGraphicsView.DragMode.NoDrag if enabled else QGraphicsView.DragMode.ScrollHandDrag)
         self.viewport().update()
 
     def set_crop_lock(self, enabled: bool, ratio: float):
+        """Enable crop aspect locking and store the active crop ratio."""
         self._crop_aspect_lock = enabled
         self._crop_aspect_ratio = max(0.01, ratio)
 
     def set_crop_rect(self, rect: QRect):
+        """Load a crop rectangle into both committed and staged crop state."""
         self._crop_rect = QRectF(rect)
         self._staged_crop_rect = QRectF(rect)
         self.viewport().update()
 
     def clear_crop_rect(self):
+        """Clear the current crop overlay from the viewer."""
         self._crop_rect = QRectF()
         self._staged_crop_rect = QRectF()
         self.viewport().update()
 
     def current_crop_rect(self) -> QRect:
+        """Return the current staged crop rectangle as integer coordinates."""
         r = self._staged_crop_rect.normalized()
         return QRect(int(round(r.x())), int(round(r.y())), int(round(r.width())), int(round(r.height())))
 
     def commit_staged_crop(self):
+        """Promote the staged crop rectangle to the committed crop rectangle."""
         self._crop_rect = QRectF(self._staged_crop_rect)
         self.viewport().update()
 
     def revert_staged_crop(self):
+        """Restore the staged crop rectangle from the last committed crop rectangle."""
         self._staged_crop_rect = QRectF(self._crop_rect)
         self.viewport().update()
 
     def dragEnterEvent(self, event):
+        """Accept drag input only for supported image file types."""
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 path = url.toLocalFile()
@@ -89,12 +102,14 @@ class ImageView(QGraphicsView):
         event.ignore()
 
     def dragMoveEvent(self, event):
+        """Keep drag-and-drop active while a supported file is moved over the viewer."""
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
         else:
             event.ignore()
 
     def dropEvent(self, event):
+        """Emit the dropped image path when a supported file is released into the viewer."""
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 path = url.toLocalFile()
@@ -105,6 +120,7 @@ class ImageView(QGraphicsView):
         event.ignore()
 
     def wheelEvent(self, event):
+        """Zoom the image view in or out in response to the mouse wheel."""
         if event.angleDelta().y() > 0:
             self.zoom_in()
         else:
@@ -112,6 +128,7 @@ class ImageView(QGraphicsView):
         self.viewport().update()
 
     def drawForeground(self, painter: QPainter, rect: QRectF):
+        """Draw the crop overlay, guides, and handles on top of the displayed image."""
         super().drawForeground(painter, rect)
         if not self._crop_mode or self.pixmap_item.pixmap().isNull():
             return
@@ -154,9 +171,11 @@ class ImageView(QGraphicsView):
                 painter.drawRect(rh)
 
     def _scene_pos(self, event) -> QPointF:
+        """Convert a mouse event position into graphics-scene coordinates."""
         return self.mapToScene(event.position().toPoint())
 
     def _pick_handle(self, scene_pos: QPointF) -> Optional[str]:
+        """Identify which crop handle or crop move zone is under the cursor."""
         for key, rect in self._handle_rects.items():
             if rect.contains(scene_pos):
                 return key
@@ -165,6 +184,7 @@ class ImageView(QGraphicsView):
         return None
 
     def _clamp_crop(self, rect: QRectF) -> QRectF:
+        """Clamp a crop rectangle to image bounds and enforce a minimum crop size."""
         bounds = QRectF(self.pixmap_item.pixmap().rect())
         rect = rect.normalized()
         if rect.width() < MIN_CROP_SIZE:
@@ -182,6 +202,7 @@ class ImageView(QGraphicsView):
         return rect.intersected(bounds).normalized()
 
     def _apply_aspect_to_corner(self, base: QRectF, moving_corner: str, scene_pos: QPointF) -> QRectF:
+        """Resize a corner-driven crop rectangle while preserving the locked aspect ratio."""
         ratio = self._crop_aspect_ratio
         left, top, right, bottom = base.left(), base.top(), base.right(), base.bottom()
         if moving_corner == "tl":
@@ -227,6 +248,7 @@ class ImageView(QGraphicsView):
         return QRectF(QPointF(left, top), QPointF(right, bottom)).normalized()
 
     def _update_crop_from_handle(self, scene_pos: QPointF):
+        """Update the staged crop rectangle according to the active drag handle."""
         base = QRectF(self._crop_rect_at_drag)
         dx = scene_pos.x() - self._drag_origin_scene.x()
         dy = scene_pos.y() - self._drag_origin_scene.y()
@@ -263,6 +285,7 @@ class ImageView(QGraphicsView):
         self._staged_crop_rect = self._clamp_crop(rect)
 
     def mousePressEvent(self, event):
+        """Start crop creation, crop movement, or crop-handle dragging when crop mode is active."""
         if self._crop_mode and event.button() == Qt.MouseButton.LeftButton and not self.pixmap_item.pixmap().isNull():
             scene_pos = self._scene_pos(event)
             bounds = QRectF(self.pixmap_item.pixmap().rect())
@@ -281,6 +304,7 @@ class ImageView(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        """Update the crop rectangle live while dragging in crop mode."""
         if self._crop_mode and self._active_handle is not None:
             scene_pos = self._scene_pos(event)
             self._update_crop_from_handle(scene_pos)
@@ -290,6 +314,7 @@ class ImageView(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        """Finish the current crop drag interaction."""
         if self._crop_mode and event.button() == Qt.MouseButton.LeftButton and self._active_handle is not None:
             self._active_handle = None
             self.viewport().update()

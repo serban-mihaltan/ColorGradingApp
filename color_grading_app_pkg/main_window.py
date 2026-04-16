@@ -32,6 +32,7 @@ from .widgets.image_view import ImageView
 
 class MainWindow(QMainWindow):
     def __init__(self):
+        """Initialize application state, worker thread, timers, UI, and action bindings."""
         super().__init__()
         self.setWindowTitle(APP_TITLE)
         self.resize(1600, 950)
@@ -72,6 +73,7 @@ class MainWindow(QMainWindow):
         self.refresh_actions()
 
     def closeEvent(self, event):
+        """Prompt for unsaved changes and shut down the worker thread before closing."""
         if not self.confirm_discard_unsaved():
             event.ignore()
             return
@@ -80,6 +82,7 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def build_ui(self):
+        """Construct the main window layout, tab panels, viewer, and toolbar."""
         self._building_ui = True
         root = QWidget()
         self.setCentralWidget(root)
@@ -105,6 +108,7 @@ class MainWindow(QMainWindow):
         self._building_ui = False
 
     def apply_styles(self):
+        """Apply the application's dark stylesheet and shared widget styling."""
         self.setStyleSheet("""
             QMainWindow, QWidget { background: #1c1c1f; color: #ececf1; }
             QGroupBox { border: 1px solid #383840; border-radius: 10px; margin-top: 10px; padding-top: 12px; font-weight: 600; }
@@ -119,6 +123,7 @@ class MainWindow(QMainWindow):
         """)
 
     def build_adjust_tab(self):
+        """Build the Adjustments tab with grading, channel, tonal, and reset controls."""
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         body = QWidget()
@@ -167,6 +172,7 @@ class MainWindow(QMainWindow):
         return scroll
 
     def build_curve_tab(self):
+        """Build the Curves tab with channel selection and the interactive curve editor."""
         w = QWidget()
         l = QVBoxLayout(w)
         row = QHBoxLayout()
@@ -187,6 +193,7 @@ class MainWindow(QMainWindow):
         return w
 
     def build_histogram_tab(self):
+        """Build the Histogram tab with the standalone histogram display."""
         w = QWidget()
         l = QVBoxLayout(w)
         self.histogram_widget = HistogramWidget()
@@ -197,6 +204,7 @@ class MainWindow(QMainWindow):
         return w
 
     def build_transform_tab(self):
+        """Build the Transform tab with navigation, crop, rotate, flip, and resize tools."""
         w = QWidget()
         layout = QVBoxLayout(w)
         nav = QGroupBox("Navigation")
@@ -263,6 +271,7 @@ class MainWindow(QMainWindow):
         return w
 
     def create_actions(self):
+        """Create reusable Qt actions and keyboard shortcuts for common operations."""
         pairs = [
             ("Open", "Ctrl+O", self.open_image, "act_open"),
             ("Export", "Ctrl+S", self.export_image, "act_export"),
@@ -292,6 +301,7 @@ class MainWindow(QMainWindow):
         self.act_load_preset.triggered.connect(self.load_preset)
 
     def create_toolbar(self):
+        """Create the top toolbar and populate it with file, history, and preview actions."""
         tb = QToolBar("Main")
         tb.setMovable(False)
         self.addToolBar(tb)
@@ -309,6 +319,7 @@ class MainWindow(QMainWindow):
         tb.addAction(cmp_act)
 
     def make_single_slider(self, mn: int, mx: int, default: int):
+        """Create one slider-label pair for a numeric UI control."""
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(mn, mx)
         slider.setValue(default)
@@ -318,6 +329,7 @@ class MainWindow(QMainWindow):
         return slider, label
 
     def wrap_slider_row(self, slider: QSlider, label: QLabel):
+        """Wrap a slider and its value label into a compact horizontal row widget."""
         w = QWidget()
         l = QHBoxLayout(w)
         l.setContentsMargins(0, 0, 0, 0)
@@ -326,6 +338,7 @@ class MainWindow(QMainWindow):
         return w
 
     def make_slider_group(self, parent_layout, spec_list):
+        """Create a group of labeled sliders from a compact control specification list."""
         out = {}
         for key, title, mn, mx, default in spec_list:
             slider, label = self.make_single_slider(mn, mx, default)
@@ -336,6 +349,7 @@ class MainWindow(QMainWindow):
         return out
 
     def make_tone_group(self, title: str, prefix: str):
+        """Create a three-channel tonal control group for shadows, midtones, or highlights."""
         box = QGroupBox(title)
         layout = QVBoxLayout(box)
         for channel in ("r", "g", "b"):
@@ -351,6 +365,7 @@ class MainWindow(QMainWindow):
         return box
 
     def get_display_target_size(self) -> Tuple[int, int]:
+        """Compute the preview render target size from geometry state and viewport size."""
         if self.original_rgba is None:
             return (800, 600)
         base = ImageProcessor.apply_crop_rotate_flip(self.original_rgba, self.state)
@@ -363,6 +378,7 @@ class MainWindow(QMainWindow):
         return fit_size_preserving_aspect(geom_w, geom_h, int(round((vp.width() - 8) * PREVIEW_RENDER_SCALE)), int(round((vp.height() - 8) * PREVIEW_RENDER_SCALE)))
 
     def get_crop_reference_size(self) -> Tuple[int, int]:
+        """Return the transformed image size used as the crop editing coordinate space."""
         if self.original_rgba is None:
             return (800, 600)
         tmp = self.state.clone()
@@ -371,6 +387,7 @@ class MainWindow(QMainWindow):
         return ref.shape[1], ref.shape[0]
 
     def get_current_crop_ratio(self):
+        """Return the active crop aspect ratio from the crop ratio selector."""
         text = self.crop_ratio_combo.currentText()
         if text == "Original" and self.original_rgba is not None:
             if self.state.crop.enabled and self.state.crop.w > 1 and self.state.crop.h > 1:
@@ -382,11 +399,13 @@ class MainWindow(QMainWindow):
         return 1.0
 
     def update_crop_lock(self):
+        """Push the current crop-lock settings into the image viewer."""
         self.viewer.set_crop_lock(self.crop_lock_check.isChecked(), self.get_current_crop_ratio())
         if self.crop_mode_check.isChecked():
             self.refresh_staged_crop_aspect()
 
     def refresh_staged_crop_aspect(self):
+        """Rebuild the staged crop box so it matches the currently selected aspect ratio."""
         rect = self.viewer.current_crop_rect()
         if rect.width() <= 1 or rect.height() <= 1 or not self.crop_lock_check.isChecked():
             return
@@ -402,6 +421,7 @@ class MainWindow(QMainWindow):
         self.viewer.set_crop_rect(QRect(int(round(cx - w / 2)), int(round(cy - h / 2)), max(MIN_CROP_SIZE, w), max(MIN_CROP_SIZE, h)))
 
     def geometry_rect_to_display_rect(self, rect: QRect) -> QRect:
+        """Convert a crop rectangle from geometry space into viewer display space."""
         ref_w, ref_h = self.get_crop_reference_size()
         disp_w, disp_h = fit_size_preserving_aspect(ref_w, ref_h, *self.get_display_target_size())
         sx = disp_w / max(1, ref_w)
@@ -409,6 +429,7 @@ class MainWindow(QMainWindow):
         return QRect(int(round(rect.x() * sx)), int(round(rect.y() * sy)), max(1, int(round(rect.width() * sx))), max(1, int(round(rect.height() * sy))))
 
     def display_rect_to_geometry_rect(self, rect: QRect) -> QRect:
+        """Convert a crop rectangle from viewer display space back into geometry space."""
         ref_w, ref_h = self.get_crop_reference_size()
         disp_w, disp_h = fit_size_preserving_aspect(ref_w, ref_h, *self.get_display_target_size())
         sx = ref_w / max(1, disp_w)
@@ -424,6 +445,7 @@ class MainWindow(QMainWindow):
         return QRect(x, y, w, h)
 
     def sync_viewer_crop_rect(self):
+        """Synchronize the viewer crop overlay with the current crop state."""
         if self.original_rgba is None:
             self.viewer.clear_crop_rect()
             return
@@ -437,12 +459,14 @@ class MainWindow(QMainWindow):
             self.refresh_staged_crop_aspect()
 
     def request_fast_render(self, skip_tonal: bool):
+        """Queue a debounced low-latency preview render for interactive editing."""
         if self.original_rgba is None:
             return
         self._pending_fast_render = (self.state.clone(), skip_tonal)
         self._fast_debounce.start(RENDER_DEBOUNCE_MS)
 
     def flush_fast_render_request(self):
+        """Submit the pending fast render request to the background worker."""
         if self.original_rgba is None or self._pending_fast_render is None:
             return
         state, skip_tonal = self._pending_fast_render
@@ -451,12 +475,14 @@ class MainWindow(QMainWindow):
         self.worker.submit(RenderRequest(self._render_generation, self.original_rgba, state, self.get_display_target_size(), False, skip_tonal))
 
     def request_full_render(self):
+        """Submit a full-quality render request for the current state."""
         if self.original_rgba is None:
             return
         self._render_generation += 1
         self.worker.submit(RenderRequest(self._render_generation, self.original_rgba, self.state.clone(), self.get_display_target_size(), True, False))
 
     def update_viewer_pixmap(self, show_original: bool = False):
+        """Refresh the viewer pixmap from either the current preview or the original image."""
         arr = self.original_rgba if show_original else self.preview_rgba
         if arr is None:
             return
@@ -470,11 +496,13 @@ class MainWindow(QMainWindow):
             self._pending_fit = False
 
     def apply_histogram_to_widgets(self, hist):
+        """Push histogram data into both the histogram widget and the curve editor overlay."""
         self._latest_histogram = hist
         self.histogram_widget.set_histogram(hist)
         self.curve_editor.set_histogram(hist)
 
     def confirm_discard_unsaved(self) -> bool:
+        """Prompt the user about unsaved changes and return whether the operation may continue."""
         if not self._is_dirty:
             return True
         box = QMessageBox(self)
@@ -495,6 +523,7 @@ class MainWindow(QMainWindow):
         return False
 
     def resizeEvent(self, event):
+        """Handle main-window resize events and keep render-dependent UI values synchronized."""
         super().resizeEvent(event)
         if self.original_rgba is not None:
             self.request_fast_render(skip_tonal=self._interactive_drag)
@@ -660,6 +689,7 @@ class MainWindow(QMainWindow):
         self.refresh_actions()
 
     def sync_controls_from_state(self):
+        """Update sliders, resize controls, and curve UI to match the current state object."""
         self._building_ui = True
         mappings = [("brightness", self.state.brightness), ("contrast", self.state.contrast), ("gamma", self.state.gamma), ("exposure", self.state.exposure), ("temperature", self.state.temperature), ("tint", self.state.tint), ("white_balance_strength", self.state.white_balance_strength), ("red_intensity", self.state.red_intensity), ("green_intensity", self.state.green_intensity), ("blue_intensity", self.state.blue_intensity)]
         for key, val in mappings:
@@ -685,16 +715,19 @@ class MainWindow(QMainWindow):
         self._building_ui = False
 
     def sync_curve_editor_from_state(self):
+        """Update the curve editor to match the active curve channel and current histogram."""
         self.curve_editor.set_channel(self.current_curve_channel)
         self.curve_editor.set_points(getattr(self.state.curves, self.current_curve_channel))
         self.curve_editor.set_histogram(self._latest_histogram)
 
     def refresh_actions(self):
+        """Refresh enabled states for export, undo, and redo actions."""
         self.act_export.setEnabled(self.original_rgba is not None)
         self.act_undo.setEnabled(self.history.can_undo())
         self.act_redo.setEnabled(self.history.can_redo())
 
     def on_slider_changed(self, key: str):
+        """Handle live updates from the main grading sliders."""
         if self._building_ui:
             return
         self._interactive_drag = True
@@ -704,6 +737,7 @@ class MainWindow(QMainWindow):
         self.commit_state(st, push_history=False)
 
     def on_tone_slider_changed(self, key: str):
+        """Handle live updates from shadows, midtones, and highlights RGB sliders."""
         if self._building_ui:
             return
         self._interactive_drag = True
@@ -714,19 +748,23 @@ class MainWindow(QMainWindow):
         self.commit_state(st, push_history=False)
 
     def on_curve_channel_changed(self, channel: str):
+        """Switch the curve editor to a different target channel."""
         self.current_curve_channel = channel
         self.sync_curve_editor_from_state()
 
     def on_curve_points_changed(self, points):
+        """Apply live curve point edits from the curve editor to the current state."""
         self._interactive_drag = True
         st = self.state.clone()
         setattr(st.curves, self.current_curve_channel, points)
         self.commit_state(st, push_history=False)
 
     def on_crop_preview_changed(self, rect: QRect):
+        """Show live crop dimensions in the status bar while the crop box is being edited."""
         self.statusBar().showMessage(f"Crop preview: {rect.width()} × {rect.height()}")
 
     def apply_crop_from_view(self):
+        """Commit the staged crop box from viewer space into the application state."""
         if self.original_rgba is None:
             return
         geom_rect = self.display_rect_to_geometry_rect(self.viewer.current_crop_rect())
@@ -736,10 +774,12 @@ class MainWindow(QMainWindow):
         self.crop_mode_check.setChecked(False)
 
     def cancel_crop_edit(self):
+        """Cancel the current crop edit and restore the previously committed crop box."""
         self.viewer.revert_staged_crop()
         self.crop_mode_check.setChecked(False)
 
     def on_resize_dimension_changed(self, changed_axis: str):
+        """Handle width or height resize slider changes and preserve aspect ratio when locked."""
         if self._building_ui or self.original_rgba is None:
             return
         self._interactive_drag = True
@@ -764,6 +804,7 @@ class MainWindow(QMainWindow):
         self.on_resize_controls_changed()
 
     def on_resize_controls_changed(self):
+        """Commit the current resize UI values into the adjustment state."""
         if self._building_ui:
             return
         st = self.state.clone()
@@ -773,6 +814,7 @@ class MainWindow(QMainWindow):
         self.commit_state(st, push_history=False)
 
     def undo(self):
+        """Restore the previous history state and refresh all dependent UI and preview output."""
         self.finalize_interaction()
         self.state = self.history.undo(self.state)
         self.sync_controls_from_state()
@@ -782,6 +824,7 @@ class MainWindow(QMainWindow):
         self.refresh_actions()
 
     def redo(self):
+        """Restore the next redo state and refresh all dependent UI and preview output."""
         self.state = self.history.redo(self.state)
         self.sync_controls_from_state()
         self.sync_viewer_crop_rect()
@@ -790,10 +833,12 @@ class MainWindow(QMainWindow):
         self.refresh_actions()
 
     def reset_all(self):
+        """Reset the full adjustment state back to defaults."""
         if self.original_rgba is not None:
             self.commit_state(AdjustmentState(), push_history=True)
 
     def reset_current_tab(self):
+        """Reset only the controls associated with the currently selected tab."""
         tab = self.controls_tabs.tabText(self.controls_tabs.currentIndex())
         st = self.state.clone()
         if tab == "Adjustments":
@@ -811,32 +856,38 @@ class MainWindow(QMainWindow):
         self.commit_state(st, push_history=True)
 
     def reset_channel(self, channel: str):
+        """Reset one RGB channel-intensity adjustment back to zero."""
         st = self.state.clone()
         setattr(st, f"{channel}_intensity", 0.0)
         self.commit_state(st, push_history=True)
 
     def reset_tone_group(self, prefix: str):
+        """Reset one tonal RGB block such as shadows, midtones, or highlights."""
         st = self.state.clone()
         setattr(st, prefix, ToneRGB())
         self.commit_state(st, push_history=True)
 
     def reset_current_curve(self):
+        """Reset the currently selected curve to the default identity line."""
         st = self.state.clone()
         setattr(st.curves, self.current_curve_channel, [(0.0, 0.0), (1.0, 1.0)])
         self.commit_state(st, push_history=True)
 
     def clear_crop(self):
+        """Clear the active crop from both state and viewer overlay."""
         st = self.state.clone()
         st.crop = CropRect()
         self.commit_state(st, push_history=True)
         self.viewer.clear_crop_rect()
 
     def reset_resize(self):
+        """Disable and clear the current resize settings."""
         st = self.state.clone()
         st.resize = ResizeState()
         self.commit_state(st, push_history=True)
 
     def remap_crop_for_new_transform(self, old_state: AdjustmentState, new_state: AdjustmentState):
+        """Remap crop coordinates so crop still targets the same content after rotate or flip."""
         if self.original_rgba is None:
             return
         if not old_state.crop.enabled or old_state.crop.w <= 1 or old_state.crop.h <= 1:
@@ -863,6 +914,7 @@ class MainWindow(QMainWindow):
         new_state.crop = CropRect(new_crop_view.x(), new_crop_view.y(), new_crop_view.width(), new_crop_view.height(), True)
 
     def remap_resize_for_new_transform(self, old_state: AdjustmentState, new_state: AdjustmentState, delta_rotation: int = 0):
+        """Remap resize dimensions after orientation changes, swapping width and height for 90/270 rotations."""
         if not old_state.resize.enabled or old_state.resize.width <= 1 or old_state.resize.height <= 1:
             return
         if delta_rotation % 180 != 0:
@@ -871,6 +923,7 @@ class MainWindow(QMainWindow):
             new_state.resize.width, new_state.resize.height = old_state.resize.width, old_state.resize.height
 
     def rotate_image(self, delta: int):
+        """Rotate the image state by 90-degree steps and remap dependent crop and resize values."""
         old_state = self.state.clone()
         st = self.state.clone()
         st.rotation = (st.rotation + delta) % 360
@@ -879,6 +932,7 @@ class MainWindow(QMainWindow):
         self.commit_state(st, push_history=True)
 
     def toggle_flip(self, axis: str):
+        """Toggle horizontal or vertical flip and remap dependent crop and resize values."""
         old_state = self.state.clone()
         st = self.state.clone()
         if axis == "h":
@@ -890,11 +944,13 @@ class MainWindow(QMainWindow):
         self.commit_state(st, push_history=True)
 
     def toggle_before_after(self):
+        """Toggle the viewer between edited preview and original-image preview."""
         self.preview_original_while_held = not self.preview_original_while_held
         self.update_viewer_pixmap(show_original=self.preview_original_while_held)
 
 
 def install_slider_commit_hooks(window: MainWindow):
+    """Attach slider press and release hooks so interactive edits finalize cleanly into history."""
     sliders = [v[0] for v in window.controls.values()] + [window.resize_w_slider, window.resize_h_slider]
     seen = set()
     for slider in sliders:

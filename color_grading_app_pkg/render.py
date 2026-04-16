@@ -10,6 +10,7 @@ from .utils import fit_size_preserving_aspect, histogram_from_rgba, resize_rgba
 
 class RenderRequest:
     def __init__(self, generation: int, source: np.ndarray, state: AdjustmentState, display_size: Tuple[int, int], full_quality: bool, skip_tonal: bool):
+        """Store all parameters required for one preview render request."""
         self.generation = generation
         self.source = source
         self.state = state
@@ -23,16 +24,19 @@ class RenderWorker(QObject):
     histogramReady = Signal(int, object)
 
     def __init__(self):
+        """Initialize the background render worker and its pending-request state."""
         super().__init__()
         self.pending: Optional[RenderRequest] = None
         self.busy = False
 
     def submit(self, request: RenderRequest):
+        """Queue a new render request, replacing any older pending request."""
         self.pending = request
         if not self.busy:
             self._process_next()
 
     def _process_next(self):
+        """Process the next queued request and emit preview and histogram results."""
         if self.pending is None:
             self.busy = False
             return

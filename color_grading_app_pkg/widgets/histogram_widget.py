@@ -6,15 +6,18 @@ from PySide6.QtWidgets import QWidget
 
 class HistogramWidget(QWidget):
     def __init__(self, parent=None):
+        """Initialize the histogram widget with empty RGB histogram buffers."""
         super().__init__(parent)
         self.setMinimumHeight(160)
         self.hist = {"r": np.zeros(256), "g": np.zeros(256), "b": np.zeros(256)}
 
     def set_histogram(self, hist):
+        """Store new histogram data and schedule a repaint."""
         self.hist = hist
         self.update()
 
     def paintEvent(self, event):
+        """Draw the RGB histogram as filled channel overlays inside the widget."""
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.fillRect(self.rect(), QColor(20, 20, 22))

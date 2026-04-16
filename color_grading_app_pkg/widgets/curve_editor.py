@@ -9,6 +9,7 @@ class CurveEditor(QWidget):
     dragFinished = Signal()
 
     def __init__(self, parent=None):
+        """Initialize the curve editor, point storage, active channel, and histogram overlay state."""
         super().__init__(parent)
         self.setMinimumHeight(300)
         self.setMinimumWidth(300)
@@ -20,18 +21,22 @@ class CurveEditor(QWidget):
         self._hist = {"r": np.zeros(256), "g": np.zeros(256), "b": np.zeros(256)}
 
     def set_channel(self, channel: str):
+        """Switch the visible and editable curve channel."""
         self._channel = channel
         self.update()
 
     def set_points(self, points):
+        """Load a sorted set of control points into the editor."""
         self._points = sorted(points, key=lambda p: p[0])
         self.update()
 
     def set_histogram(self, hist):
+        """Attach histogram data for background display inside the curve editor."""
         self._hist = hist
         self.update()
 
     def _content_rect(self) -> QRectF:
+        """Return the square plotting area used for the curve graph."""
         m = 20
         side = max(40.0, min(self.width() - 2 * m, self.height() - 2 * m))
         x = (self.width() - side) / 2.0
@@ -39,10 +44,12 @@ class CurveEditor(QWidget):
         return QRectF(x, y, side, side)
 
     def _to_widget(self, p):
+        """Convert normalized curve coordinates into widget-space coordinates."""
         r = self._content_rect()
         return QPointF(r.left() + p[0] * r.width(), r.bottom() - p[1] * r.height())
 
     def _to_normalized(self, pos):
+        """Convert a widget-space mouse position into normalized curve coordinates."""
         r = self._content_rect()
         return (
             float(np.clip((pos.x() - r.left()) / max(1.0, r.width()), 0, 1)),
@@ -50,12 +57,14 @@ class CurveEditor(QWidget):
         )
 
     def _find_handle(self, pos):
+        """Return the index of the curve point handle under the cursor, if any."""
         for i, p in enumerate(self._points):
             if (self._to_widget(p) - pos).manhattanLength() <= 12:
                 return i
         return None
 
     def mousePressEvent(self, event):
+        """Start dragging a point, add a new point, or remove a point depending on input."""
         if event.button() == Qt.MouseButton.LeftButton:
             idx = self._find_handle(event.position())
             if idx is not None:
@@ -76,6 +85,7 @@ class CurveEditor(QWidget):
                 self.update()
 
     def mouseMoveEvent(self, event):
+        """Move the currently dragged curve point while preserving point order constraints."""
         if self._drag_index is None:
             return
         x, y = self._to_normalized(event.position())
@@ -93,11 +103,13 @@ class CurveEditor(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event):
+        """End a curve drag operation and emit the interaction-finished signal."""
         if self._drag_index is not None:
             self._drag_index = None
             self.dragFinished.emit()
 
     def paintEvent(self, event):
+        """Draw the histogram background, grid, border, active curve, and curve handles."""
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.fillRect(self.rect(), QColor(24, 24, 26))
